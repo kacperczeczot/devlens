@@ -7,6 +7,22 @@ a projekt stosuje [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-09-20
+
+### Naprawiono
+- **Audyt uprawnień macOS TCC (`check_filesystem` & `check_full_disk_access`)**:
+  - Wyeliminowano fałszywe raportowanie pełnych uprawnień (`all_granted: true`), gdy dostęp do dysków zewnętrznych był zablokowany.
+  - Dodano aktywną inspekcję `/Volumes` oraz podłączonych dysków wymiennych do audytu systemu plików na macOS.
+  - Skorygowano warunek FDA — brak dostępu do dysków wymiennych jest teraz jednoznacznie oznaczany jako brak uprawnień krytycznych (`action_required`).
+  - Dodano do `Info.plist` brakujące deskryptory uprawnień systemowych macOS: `NSRemovableVolumesUsageDescription` oraz `NSDesktopFolderUsageDescription`.
+- **Stabilność serwera i eliminacja blokad Tokio (`handle_query` & `handle_read_file`)**:
+  - Przeniesiono operacje czytania systemu plików z asynchronicznych wątków Tokio do puli `tokio::task::spawn_blocking`.
+  - Wprowadzono 5-sekundowy limit czasu (timeout), zapobiegający blokowaniu serwera na poziomie jądra macOS (`__open_nocancel`) w przypadku braku zgody TCC lub uśpionego dysku.
+  - Dodano bezpieczną obsługę błędów `PermissionDenied` na poziomie pojedynczych plików i woluminów bez przerywania całego żądania.
+- **Klient mobilny (`apps/android`)**:
+  - Przełączono zapytania eksploracji plików (`listFiles` i `readFile`) z 5-sekundowego `fastClient` na dedykowany `fileClient` z 60-sekundowym timeoutem.
+  - Wprowadzono translację błędów `SocketTimeoutException` na czytelne komunikaty w języku polskim, wskazujące na potrzebę weryfikacji uprawnień macOS TCC.
+
 ## [1.0.0] - 2026-09-20
 
 ### Dodano

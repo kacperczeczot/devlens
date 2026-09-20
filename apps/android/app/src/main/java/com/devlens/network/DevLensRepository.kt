@@ -313,12 +313,17 @@ class DevLensRepository(context: Context) {
                 ?: return@withContext Result.failure(Exception("Nie znaleziono węzła '$nodeId'"))
 
             try {
-                val api = DevLensApiService.create("http://${target.host}:${target.port}")
+                val api = DevLensApiService.create("http://${target.host}:${target.port}", isFile = true)
                 val queryPath = path?.trim()?.ifBlank { "." } ?: "."
                 val res = api.queryFiles(target.token, FileQueryRequest(path = queryPath, maxDepth = 1))
                 Result.success(res)
             } catch (e: Exception) {
-                Result.failure(e)
+                val errorMsg = when (e) {
+                    is java.net.SocketTimeoutException ->
+                        "Przekroczono limit czasu oczekiwania na węzeł (możliwa blokada uprawnień macOS TCC do dysków zewnętrznych lub uśpiony dysk). Upewnij się, że DevLens posiada uprawnienia do dysków zewnętrznych w Ustawieniach systemowych."
+                    else -> e.localizedMessage ?: "Błąd połączenia z węzłem"
+                }
+                Result.failure(Exception(errorMsg, e))
             }
         }
 
@@ -328,7 +333,7 @@ class DevLensRepository(context: Context) {
                 ?: return@withContext Result.failure(Exception("Nie znaleziono węzła '$nodeId'"))
 
             val cleanPath = filePath.trim()
-            val api = DevLensApiService.create("http://${target.host}:${target.port}")
+            val api = DevLensApiService.create("http://${target.host}:${target.port}", isFile = true)
 
             try {
                 val res = api.readFile(target.token, ReadFileRequest(path = cleanPath))
@@ -340,7 +345,12 @@ class DevLensRepository(context: Context) {
                 }
                 Result.success(res)
             } catch (e: Exception) {
-                Result.failure(e)
+                val errorMsg = when (e) {
+                    is java.net.SocketTimeoutException ->
+                        "Przekroczono limit czasu odczytu pliku (możliwa blokada uprawnień macOS TCC do dysków zewnętrznych lub uśpiony dysk)."
+                    else -> e.localizedMessage ?: "Błąd podczas odczytu pliku"
+                }
+                Result.failure(Exception(errorMsg, e))
             }
         }
 

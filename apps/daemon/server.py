@@ -416,10 +416,34 @@ class DevLensRequestHandler(BaseHTTPRequestHandler):
             ("Folder konfiguracyjny DevLens", os.path.join(home, ".devlens")),
         ]
 
+        if platform.system() == "Darwin":
+            sensitive_paths.append(("Katalog woluminów (/Volumes)", "/Volumes"))
+            if os.path.isdir("/Volumes"):
+                try:
+                    for v in os.listdir("/Volumes"):
+                        vp = os.path.join("/Volumes", v)
+                        if not os.path.islink(vp):
+                            sensitive_paths.append((f"Dysk zewnętrzny ({v})", vp))
+                except Exception:
+                    pass
+
+        recommendations = []
+        all_passed = True
+
         for name, p in sensitive_paths:
             exists = os.path.exists(p)
             readable = os.access(p, os.R_OK) if exists else False
             writable = os.access(p, os.W_OK) if exists else False
+
+            if exists and not readable:
+                all_passed = False
+                if "Volumes" in p or "Dysk" in name:
+                    recommendations.append(
+                        f"Brak dostępu do {name}: Włącz 'Dyski wymienne' lub 'Pełny dostęp do dysku' w Ustawieniach systemowych macOS."
+                    )
+                else:
+                    recommendations.append(f"Upewnij się, że użytkownik ma prawa do odczytu: {name}")
+
             checks.append({
                 "name": name,
                 "path": p,
@@ -428,19 +452,22 @@ class DevLensRequestHandler(BaseHTTPRequestHandler):
                 "exists": exists
             })
 
+        overall_status = "ok" if all_passed else "action_required"
+        summary = "Środowisko DevLens działa poprawnie." if all_passed else "Wykryto ograniczenia uprawnień (brak dostępu do wybranych ścieżek/dysków)."
+
         return {
             "timestamp": int(time.time()),
             "platform": platform.system(),
             "os_version": platform.release(),
             "arch": platform.machine(),
-            "all_granted": True,
-            "overall_status": "ok",
-            "summary": "Środowisko DevLens działa poprawnie.",
+            "all_granted": all_passed,
+            "overall_status": overall_status,
+            "summary": summary,
             "filesystem": {
-                "all_passed": True,
+                "all_passed": all_passed,
                 "paths": checks
             },
-            "recommendations": []
+            "recommendations": recommendations
         }
 
     def _fix_permission(self, action):

@@ -1315,39 +1315,80 @@ fn check_full_disk_access(fs_passed: bool) -> FullDiskAccessCheck {
             }
         }
 
+        // Check if any removable / external volumes exist and if we can read them
+        let mut removable_denied = false;
+        let mut denied_vol_name = String::new();
+        let volumes_dir = std::path::Path::new("/Volumes");
+        if volumes_dir.exists() {
+            if let Ok(entries) = std::fs::read_dir(volumes_dir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if let Ok(meta) = std::fs::symlink_metadata(&p) {
+                        if meta.file_type().is_symlink() {
+                            continue;
+                        }
+                    }
+                    if probe_fda(&p) == "denied" {
+                        removable_denied = true;
+                        denied_vol_name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                        break;
+                    }
+                }
+            }
+        }
+
         if let Some(home) = dirs_home() {
             let safari_dir = home.join("Library").join("Safari");
             if safari_dir.exists() {
                 let result = probe_fda(&safari_dir);
                 return match result {
-                    "granted" => FullDiskAccessCheck {
-                        granted: true,
-                        status: "granted".to_string(),
-                        probed_path: safari_dir.to_string_lossy().to_string(),
-                        message: "Pełny dostęp do dysku (FDA) jest aktywny. Wszystkie katalogi systemowe i użytkownika są dostępne.".to_string(),
+                    "granted" => {
+                        if removable_denied {
+                            FullDiskAccessCheck {
+                                granted: false,
+                                status: "denied".to_string(),
+                                probed_path: format!("/Volumes/{}", denied_vol_name),
+                                message: "Brak uprawnień do odczytu dysków zewnętrznych (macOS TCC). Włącz 'Dyski wymienne' lub 'Pełny dostęp do dysku' w Ustawieniach systemowych.".to_string(),
+                            }
+                        } else {
+                            FullDiskAccessCheck {
+                                granted: true,
+                                status: "granted".to_string(),
+                                probed_path: safari_dir.to_string_lossy().to_string(),
+                                message: "Pełny dostęp do dysku (FDA) jest aktywny. Wszystkie katalogi systemowe i dyski zewnętrzne są dostępne.".to_string(),
+                            }
+                        }
                     },
                     "denied" => {
-                        if fs_passed {
+                        if fs_passed && !removable_denied {
                             FullDiskAccessCheck {
                                 granted: true,
                                 status: "standard".to_string(),
                                 probed_path: safari_dir.to_string_lossy().to_string(),
-                                message: "Dostęp do folderów użytkownika i projektów jest w pełni aktywny (dostęp standardowy). Chronione bazy systemowe (Safari) są odizolowane przez macOS.".to_string(),
+                                message: "Dostęp do folderów użytkownika i projektów jest aktywny (dostęp standardowy). Chronione bazy systemowe (Safari) są odizolowane przez macOS.".to_string(),
                             }
                         } else {
                             FullDiskAccessCheck {
                                 granted: false,
                                 status: "denied".to_string(),
-                                probed_path: safari_dir.to_string_lossy().to_string(),
-                                message: "Brak Pełnego Dostępu do Dysku (macOS TCC zablokowało dostęp do folderów). Włącz w Ustawieniach → Prywatność → Pełny dostęp do dysku.".to_string(),
+                                probed_path: if removable_denied { format!("/Volumes/{}", denied_vol_name) } else { safari_dir.to_string_lossy().to_string() },
+                                message: if removable_denied {
+                                    "Brak uprawnień do odczytu dysków zewnętrznych (macOS TCC). Włącz 'Dyski wymienne' w: Ustawienia systemowe -> Prywatność i ochrona -> Pliki i foldery -> DevLens, lub nadaj 'Pełny dostęp do dysku'.".to_string()
+                                } else {
+                                    "Brak Pełnego Dostępu do Dysku (macOS TCC zablokowało dostęp do folderów). Włącz w Ustawieniach systemowych -> Prywatność i ochrona -> Pełny dostęp do dysku.".to_string()
+                                },
                             }
                         }
                     },
                     _ => FullDiskAccessCheck {
-                        granted: true,
-                        status: "unknown".to_string(),
-                        probed_path: safari_dir.to_string_lossy().to_string(),
-                        message: "Nie można jednoznacznie sprawdzić FDA (timeout probe lub oczekujący dialog systemu). Prawdopodobnie OK.".to_string(),
+                        granted: !removable_denied,
+                        status: if removable_denied { "denied".to_string() } else { "unknown".to_string() },
+                        probed_path: if removable_denied { format!("/Volumes/{}", denied_vol_name) } else { safari_dir.to_string_lossy().to_string() },
+                        message: if removable_denied {
+                            "Wykryto blokadę dysków zewnętrznych przez macOS TCC. Włącz Pełny dostęp do dysku lub Dyski wymienne w Ustawieniach systemowych.".to_string()
+                        } else {
+                            "Nie można jednoznacznie sprawdzić FDA (timeout probe). Prawdopodobnie OK.".to_string()
+                        },
                     },
                 };
             }
@@ -1356,44 +1397,72 @@ fn check_full_disk_access(fs_passed: bool) -> FullDiskAccessCheck {
             if mail_dir.exists() {
                 let result = probe_fda(&mail_dir);
                 return match result {
-                    "granted" => FullDiskAccessCheck {
-                        granted: true,
-                        status: "granted".to_string(),
-                        probed_path: mail_dir.to_string_lossy().to_string(),
-                        message: "Pełny dostęp do dysku (FDA) jest aktywny.".to_string(),
+                    "granted" => {
+                        if removable_denied {
+                            FullDiskAccessCheck {
+                                granted: false,
+                                status: "denied".to_string(),
+                                probed_path: format!("/Volumes/{}", denied_vol_name),
+                                message: "Brak uprawnień do odczytu dysków zewnętrznych (macOS TCC). Włącz 'Dyski wymienne' lub 'Pełny dostęp do dysku' w Ustawieniach systemowych.".to_string(),
+                            }
+                        } else {
+                            FullDiskAccessCheck {
+                                granted: true,
+                                status: "granted".to_string(),
+                                probed_path: mail_dir.to_string_lossy().to_string(),
+                                message: "Pełny dostęp do dysku (FDA) jest aktywny.".to_string(),
+                            }
+                        }
                     },
                     "denied" => {
-                        if fs_passed {
+                        if fs_passed && !removable_denied {
                             FullDiskAccessCheck {
                                 granted: true,
                                 status: "standard".to_string(),
                                 probed_path: mail_dir.to_string_lossy().to_string(),
-                                message: "Dostęp do folderów użytkownika i projektów jest w pełni aktywny (dostęp standardowy). Chronione bazy systemowe (Mail) są odizolowane przez macOS.".to_string(),
+                                message: "Dostęp do folderów użytkownika i projektów jest aktywny (dostęp standardowy). Chronione bazy systemowe (Mail) są odizolowane przez macOS.".to_string(),
                             }
                         } else {
                             FullDiskAccessCheck {
                                 granted: false,
                                 status: "denied".to_string(),
-                                probed_path: mail_dir.to_string_lossy().to_string(),
-                                message: "Brak Pełnego Dostępu do Dysku (macOS TCC zablokowało dostęp do folderów). Włącz w Ustawieniach → Prywatność → Pełny dostęp do dysku.".to_string(),
+                                probed_path: if removable_denied { format!("/Volumes/{}", denied_vol_name) } else { mail_dir.to_string_lossy().to_string() },
+                                message: if removable_denied {
+                                    "Brak uprawnień do odczytu dysków zewnętrznych (macOS TCC). Włącz 'Dyski wymienne' w: Ustawienia systemowe -> Prywatność i ochrona -> Pliki i foldery -> DevLens, lub nadaj 'Pełny dostęp do dysku'.".to_string()
+                                } else {
+                                    "Brak Pełnego Dostępu do Dysku (macOS TCC zablokowało dostęp do folderów). Włącz w Ustawieniach systemowych -> Prywatność i ochrona -> Pełny dostęp do dysku.".to_string()
+                                },
                             }
                         }
                     },
                     _ => FullDiskAccessCheck {
-                        granted: true,
-                        status: "unknown".to_string(),
-                        probed_path: mail_dir.to_string_lossy().to_string(),
-                        message: "Nie można jednoznacznie sprawdzić FDA (timeout probe lub oczekujący dialog systemu). Prawdopodobnie OK.".to_string(),
+                        granted: !removable_denied,
+                        status: if removable_denied { "denied".to_string() } else { "unknown".to_string() },
+                        probed_path: if removable_denied { format!("/Volumes/{}", denied_vol_name) } else { mail_dir.to_string_lossy().to_string() },
+                        message: if removable_denied {
+                            "Wykryto blokadę dysków zewnętrznych przez macOS TCC. Włącz Pełny dostęp do dysku lub Dyski wymienne w Ustawieniach systemowych.".to_string()
+                        } else {
+                            "Nie można jednoznacznie sprawdzić FDA (timeout probe). Prawdopodobnie OK.".to_string()
+                        },
                     },
                 };
             }
         }
 
-        FullDiskAccessCheck {
-            granted: true,
-            status: "granted".to_string(),
-            probed_path: "TCC checks passed".to_string(),
-            message: "Dostęp do dysku aktywny: brak restrykcji TCC na testowanych ścieżkach.".to_string(),
+        if removable_denied {
+            FullDiskAccessCheck {
+                granted: false,
+                status: "denied".to_string(),
+                probed_path: format!("/Volumes/{}", denied_vol_name),
+                message: "Brak uprawnień do odczytu dysków zewnętrznych (macOS TCC). Włącz 'Dyski wymienne' lub 'Pełny dostęp do dysku' w Ustawieniach systemowych.".to_string(),
+            }
+        } else {
+            FullDiskAccessCheck {
+                granted: true,
+                status: "granted".to_string(),
+                probed_path: "TCC checks passed".to_string(),
+                message: "Dostęp do dysku aktywny: brak restrykcji TCC na testowanych ścieżkach.".to_string(),
+            }
         }
     }
 
@@ -1543,6 +1612,49 @@ fn check_filesystem() -> FileSystemCheck {
             let devlens_data = home.join(".devlens");
             let _ = fs::create_dir_all(&devlens_data);
             paths.push(probe_path("Katalog danych DevLens (~/.devlens)", &devlens_data, true));
+        }
+    }
+
+    // 7. External / Removable Volumes
+    #[cfg(target_os = "macos")]
+    {
+        let volumes_dir = PathBuf::from("/Volumes");
+        if volumes_dir.exists() {
+            paths.push(probe_path("Katalog woluminów (/Volumes)", &volumes_dir, false));
+
+            if let Ok(entries) = std::fs::read_dir(&volumes_dir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    // Skip symlink to Macintosh HD
+                    if let Ok(meta) = std::fs::symlink_metadata(&p) {
+                        if meta.file_type().is_symlink() {
+                            continue;
+                        }
+                    }
+                    let vol_name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                    if !vol_name.is_empty() {
+                        paths.push(probe_path(&format!("Dysk zewnętrzny ({})", vol_name), &p, false));
+                    }
+                }
+            }
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let disks = Disks::new_with_refreshed_list();
+        for d in &disks {
+            let mp = d.mount_point();
+            let name = d.name().to_string_lossy().to_string();
+            paths.push(probe_path(&format!("Dysk: {} ({})", name, mp.to_string_lossy()), mp, false));
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        for mount_candidate in &["/media", "/mnt"] {
+            let pb = PathBuf::from(mount_candidate);
+            if pb.exists() {
+                paths.push(probe_path(&format!("Punkt montowania ({})", mount_candidate), &pb, false));
+            }
         }
     }
 
@@ -1994,9 +2106,9 @@ async fn run_permission_audit(state: &AppState) -> PermissionAuditReport {
         recommendations.push("Nadaj uprawnienia Dostępności: Otwórz Ustawienia systemowe -> Prywatność i ochrona -> Dostępność i włącz DevLens / Terminal.".to_string());
     }
 
-    // Only recommend FDA fix when definitively denied AND user filesystem paths are failing.
-    if !full_disk_access.granted && full_disk_access.status == "denied" && !filesystem.all_passed {
-        recommendations.push("Włącz Pełny dostęp do dysku: Otwórz Ustawienia systemowe -> Prywatność i ochrona -> Pełny dostęp do dysku, aby umożliwić dostęp do zablokowanych folderów roboczych.".to_string());
+    // Recommend FDA / Removable Volumes fix when denied or filesystem paths fail.
+    if !full_disk_access.granted && full_disk_access.status == "denied" {
+        recommendations.push("Nadaj uprawnienia do dysków zewnętrznych / Pełny dostęp do dysku: Otwórz Ustawienia systemowe -> Prywatność i ochrona -> Pełny dostęp do dysku (lub Pliki i foldery -> DevLens -> Dyski wymienne), aby umożliwić odczyt dysków zewnętrznych i folderów roboczych.".to_string());
     }
 
     if codesign.quarantine_active {
@@ -2009,12 +2121,12 @@ async fn run_permission_audit(state: &AppState) -> PermissionAuditReport {
         let fda_missing = !full_disk_access.granted && full_disk_access.status == "denied";
         for p in &filesystem.paths {
             if let Some(ref err) = p.error {
-                let is_tcc_protected = p.path.contains("Downloads") || p.path.contains("Documents") || p.path.contains("Desktop");
+                let is_tcc_protected = p.path.contains("Downloads") || p.path.contains("Documents") || p.path.contains("Desktop") || p.path.contains("Volumes");
                 if is_tcc_protected && fda_missing {
-                    // Objaw braku Pełnego Dostępu do Dysku – instrukcja naprawcza jest już w zaleceniach FDA.
+                    // Objaw braku Pełnego Dostępu do Dysku / Dysków wymiennych – instrukcja naprawcza jest już w zaleceniach FDA.
                     continue;
                 }
-                recommendations.push(format!("Folder {}: Upewnij się, że użytkownik ma prawa dostępu (wykryto: {})", p.name, err));
+                recommendations.push(format!("{}: Upewnij się, że użytkownik ma prawa dostępu (wykryto: {})", p.name, err));
             }
         }
     }
@@ -2034,10 +2146,10 @@ async fn run_permission_audit(state: &AppState) -> PermissionAuditReport {
         recommendations.push("Nie wykryto adresu Tailscale (100.x.y.z). Dostęp do węzła z telefonu spoza lokalnego Wi-Fi wymaga włączenia Tailscale.".to_string());
     }
 
-    // Critical health requires: Accessibility (TCC), real user filesystem access, process spawning, and no quarantine.
-    // Isolated system directories (Safari/Mail) do NOT block daemon operation when project/workspace paths pass.
+    // Critical health requires: Accessibility (TCC), real user filesystem access, process spawning, valid disk access, and no quarantine.
     let critical_ok = accessibility.granted
         && filesystem.all_passed
+        && full_disk_access.granted
         && process_execution.can_spawn
         && !codesign.quarantine_active;
 
@@ -2057,7 +2169,7 @@ async fn run_permission_audit(state: &AppState) -> PermissionAuditReport {
         (
             false,
             "action_required".to_string(),
-            "Wykryto brakujące uprawnienia krytyczne. Wymagana interwencja użytkownika w systemie.".to_string(),
+            "Wykryto brakujące uprawnienia krytyczne (dostęp do dysków lub procesów jest zablokowany). Wymagana interwencja użytkownika w systemie.".to_string(),
         )
     };
 
@@ -2337,6 +2449,131 @@ fn resolve_path(input: &str) -> PathBuf {
     }
 }
 
+fn scan_directory(dir: &std::path::Path, max_depth: usize) -> Result<Vec<serde_json::Value>, String> {
+    if max_depth <= 1 {
+        let read_res = std::fs::read_dir(dir);
+        let entries = match read_res {
+            Ok(it) => it,
+            Err(e) => {
+                if e.raw_os_error() == Some(1) || e.kind() == std::io::ErrorKind::PermissionDenied {
+                    return Err(format!("Brak uprawnień do odczytu katalogu '{}' (odmowa macOS TCC / Permission Denied). Włącz dostęp do dysków wymiennych w Ustawieniach systemowych.", dir.display()));
+                } else {
+                    return Err(format!("Nie można odczytać katalogu '{}': {}", dir.display(), e));
+                }
+            }
+        };
+
+        let mut items = Vec::new();
+        for entry_res in entries {
+            let entry = match entry_res {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+
+            let full_p = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+
+            let symlink_meta = std::fs::symlink_metadata(&full_p).ok();
+            let is_symlink = symlink_meta.as_ref().map(|m| m.file_type().is_symlink()).unwrap_or(false);
+
+            let (is_dir, size, modified, symlink_target) = if is_symlink {
+                let target = std::fs::read_link(&full_p).ok().map(|p| p.to_string_lossy().to_string());
+                let target_meta = std::fs::metadata(&full_p).ok();
+                let is_dir = target_meta.as_ref().map(|m| m.is_dir()).unwrap_or(false);
+                let size = if is_dir { 0 } else { target_meta.as_ref().map(|m| m.len()).unwrap_or(0) };
+                let mod_time = target_meta.as_ref()
+                    .and_then(|m| m.modified().ok())
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                (is_dir, size, mod_time, target)
+            } else {
+                let meta = std::fs::metadata(&full_p).ok();
+                let is_dir = meta.as_ref().map(|m| m.is_dir()).unwrap_or(false);
+                let size = if is_dir { 0 } else { meta.as_ref().map(|m| m.len()).unwrap_or(0) };
+                let mod_time = meta.as_ref()
+                    .and_then(|m| m.modified().ok())
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                (is_dir, size, mod_time, None)
+            };
+
+            items.push(json!({
+                "name": name,
+                "type": if is_dir { "dir" } else { "file" },
+                "is_dir": is_dir,
+                "is_symlink": is_symlink,
+                "symlink_target": symlink_target,
+                "size": size,
+                "modified": modified,
+                "path": full_p.to_string_lossy().to_string()
+            }));
+
+            if items.len() >= 500 {
+                break;
+            }
+        }
+        Ok(items)
+    } else {
+        let mut items = Vec::new();
+        let walker = WalkDir::new(dir)
+            .max_depth(max_depth)
+            .into_iter()
+            .filter_map(|e| e.ok());
+
+        for entry in walker {
+            if entry.depth() == 0 {
+                continue;
+            }
+            let is_symlink = entry.file_type().is_symlink();
+            let (is_dir, size, modified, symlink_target) = if is_symlink {
+                let target = std::fs::read_link(entry.path()).ok().map(|p| p.to_string_lossy().to_string());
+                if let Ok(target_meta) = std::fs::metadata(entry.path()) {
+                    let is_dir = target_meta.is_dir();
+                    let size = if is_dir { 0 } else { target_meta.len() };
+                    let mod_time = target_meta.modified().ok()
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    (is_dir, size, mod_time, target)
+                } else {
+                    (false, 0, 0, target)
+                }
+            } else {
+                let is_dir = entry.file_type().is_dir();
+                let meta = entry.metadata().ok();
+                let size = if is_dir { 0 } else { meta.as_ref().map(|m| m.len()).unwrap_or(0) };
+                let mod_time = meta.and_then(|m| m.modified().ok())
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                (is_dir, size, mod_time, None)
+            };
+
+            let file_type = if is_dir { "dir" } else { "file" };
+            let full_p = entry.path().to_string_lossy().to_string();
+            let name = entry.file_name().to_string_lossy().to_string();
+
+            items.push(json!({
+                "name": name,
+                "type": file_type,
+                "is_dir": is_dir,
+                "is_symlink": is_symlink,
+                "symlink_target": symlink_target,
+                "size": size,
+                "modified": modified,
+                "path": full_p
+            }));
+
+            if items.len() >= 500 {
+                break;
+            }
+        }
+        Ok(items)
+    }
+}
+
 async fn handle_query(
     headers: HeaderMap,
     State(state): State<AppState>,
@@ -2359,84 +2596,68 @@ async fn handle_query(
     }
 
     let parent_path = canonical.parent().map(|p| p.to_string_lossy().to_string());
+    let canonical_clone = canonical.clone();
+    let max_depth = payload.max_depth;
 
-    let mut items = Vec::new();
-    let walker = WalkDir::new(&canonical)
-        .max_depth(payload.max_depth)
-        .into_iter()
-        .filter_map(|e| e.ok());
+    // Run filesystem exploration in spawn_blocking with a strict timeout to prevent kernel freezes
+    let scan_result = tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio::task::spawn_blocking(move || scan_directory(&canonical_clone, max_depth))
+    ).await;
 
-    for entry in walker {
-        if entry.depth() == 0 {
-            continue;
+    match scan_result {
+        Ok(Ok(Ok(mut items))) => {
+            // Sort items: directories first, then files alphabetically
+            items.sort_by(|a, b| {
+                let a_dir = a.get("is_dir").and_then(|v| v.as_bool()).unwrap_or(false);
+                let b_dir = b.get("is_dir").and_then(|v| v.as_bool()).unwrap_or(false);
+                match (a_dir, b_dir) {
+                    (true, false) => std::cmp::Ordering::Less,
+                    (false, true) => std::cmp::Ordering::Greater,
+                    _ => {
+                        let a_name = a.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                        let b_name = b.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                        a_name.to_lowercase().cmp(&b_name.to_lowercase())
+                    }
+                }
+            });
+
+            Ok(Json(json!({
+                "path": payload.path,
+                "current_path": canonical.to_string_lossy().to_string(),
+                "parent_path": parent_path,
+                "count": items.len(),
+                "items": items
+            })))
         }
-        let is_symlink = entry.file_type().is_symlink();
-        let (is_dir, size, modified, symlink_target) = if is_symlink {
-            let target = std::fs::read_link(entry.path()).ok().map(|p| p.to_string_lossy().to_string());
-            if let Ok(target_meta) = std::fs::metadata(entry.path()) {
-                let is_dir = target_meta.is_dir();
-                let size = if is_dir { 0 } else { target_meta.len() };
-                let mod_time = target_meta.modified().ok()
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|d| d.as_secs())
-                    .unwrap_or(0);
-                (is_dir, size, mod_time, target)
-            } else {
-                (false, 0, 0, target)
-            }
-        } else {
-            let is_dir = entry.file_type().is_dir();
-            let meta = entry.metadata().ok();
-            let size = if is_dir { 0 } else { meta.as_ref().map(|m| m.len()).unwrap_or(0) };
-            let mod_time = meta.and_then(|m| m.modified().ok())
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
-            (is_dir, size, mod_time, None)
-        };
-
-        let file_type = if is_dir { "dir" } else { "file" };
-        let full_p = entry.path().to_string_lossy().to_string();
-        let name = entry.file_name().to_string_lossy().to_string();
-
-        items.push(json!({
-            "name": name,
-            "type": file_type,
-            "is_dir": is_dir,
-            "is_symlink": is_symlink,
-            "symlink_target": symlink_target,
-            "size": size,
-            "modified": modified,
-            "path": full_p
-        }));
-
-        if items.len() >= 300 {
-            break;
+        Ok(Ok(Err(err_msg))) => {
+            Ok(Json(json!({
+                "error": err_msg,
+                "current_path": canonical.to_string_lossy().to_string(),
+                "parent_path": parent_path,
+                "count": 0,
+                "items": []
+            })))
+        }
+        Ok(Err(join_err)) => {
+            Ok(Json(json!({
+                "error": format!("Błąd wątku eksploracji katalogu: {}", join_err),
+                "current_path": canonical.to_string_lossy().to_string(),
+                "parent_path": parent_path,
+                "count": 0,
+                "items": []
+            })))
+        }
+        Err(_) => {
+            Ok(Json(json!({
+                "error": format!("Przekroczono limit czasu odczytu katalogu '{}' (możliwa blokada uprawnień macOS TCC do dysków zewnętrznych lub uśpiony dysk). Upewnij się, że DevLens posiada uprawnienia do Dysków wymiennych lub Pełny dostęp do dysku w Ustawieniach systemowych macOS.", canonical.display()),
+                "current_path": canonical.to_string_lossy().to_string(),
+                "parent_path": parent_path,
+                "count": 0,
+                "items": []
+            })))
         }
     }
-
-    // Sort items: directories first, then files alphabetically
-    items.sort_by(|a, b| {
-        let a_dir = a.get("is_dir").and_then(|v| v.as_bool()).unwrap_or(false);
-        let b_dir = b.get("is_dir").and_then(|v| v.as_bool()).unwrap_or(false);
-        match (a_dir, b_dir) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            _ => {
-                let a_name = a.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                let b_name = b.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                a_name.to_lowercase().cmp(&b_name.to_lowercase())
-            }
-        }
-    });
-
-    Ok(Json(json!({
-        "path": payload.path,
-        "current_path": canonical.to_string_lossy().to_string(),
-        "parent_path": parent_path,
-        "count": items.len(),
-        "items": items
-    })))
 }
 
 #[derive(Deserialize)]
@@ -2480,19 +2701,57 @@ async fn handle_read_file(
         })));
     }
 
+    let canonical_clone = canonical.clone();
     let file_name = canonical.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-    let meta = std::fs::metadata(&canonical);
-    let size = meta.map(|m| m.len()).unwrap_or(0);
 
-    const MAX_READ_BYTES: usize = 512 * 1024;
-    let bytes = match std::fs::read(&canonical) {
-        Ok(b) => b,
-        Err(e) => {
+    let read_result = tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio::task::spawn_blocking(move || {
+            let meta = std::fs::metadata(&canonical_clone);
+            let size = meta.map(|m| m.len()).unwrap_or(0);
+            match std::fs::read(&canonical_clone) {
+                Ok(bytes) => Ok((bytes, size)),
+                Err(e) => {
+                    if e.raw_os_error() == Some(1) || e.kind() == std::io::ErrorKind::PermissionDenied {
+                        Err("Brak uprawnień do odczytu pliku (odmowa macOS TCC / Permission Denied). Włącz Pełny dostęp do dysku lub uprawnienie do Dysków wymiennych w Ustawieniach systemowych.".to_string())
+                    } else {
+                        Err(format!("Błąd odczytu pliku: {}", e))
+                    }
+                }
+            }
+        })
+    ).await;
+
+    let (bytes, size) = match read_result {
+        Ok(Ok(Ok(res))) => res,
+        Ok(Ok(Err(err_msg))) => {
             return Ok(Json(json!({
-                "error": format!("Błąd odczytu pliku: {}", e),
+                "error": err_msg,
                 "path": canonical.to_string_lossy().to_string(),
                 "name": file_name,
-                "size": size,
+                "size": 0,
+                "content": "",
+                "is_binary": false,
+                "is_dir": false
+            })));
+        }
+        Ok(Err(join_err)) => {
+            return Ok(Json(json!({
+                "error": format!("Błąd wątku czytania pliku: {}", join_err),
+                "path": canonical.to_string_lossy().to_string(),
+                "name": file_name,
+                "size": 0,
+                "content": "",
+                "is_binary": false,
+                "is_dir": false
+            })));
+        }
+        Err(_) => {
+            return Ok(Json(json!({
+                "error": format!("Przekroczono limit czasu odczytu pliku '{}' (możliwa blokada uprawnień macOS TCC lub uśpiony dysk zewnętrzny).", canonical.display()),
+                "path": canonical.to_string_lossy().to_string(),
+                "name": file_name,
+                "size": 0,
                 "content": "",
                 "is_binary": false,
                 "is_dir": false
@@ -2504,6 +2763,7 @@ async fn handle_read_file(
     let content = if is_binary {
         "[Zawartość binarna / podgląd tekstowy niedostępny]".to_string()
     } else {
+        const MAX_READ_BYTES: usize = 512 * 1024;
         let truncated = if bytes.len() > MAX_READ_BYTES {
             &bytes[..MAX_READ_BYTES]
         } else {

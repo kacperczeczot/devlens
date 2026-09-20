@@ -9,9 +9,9 @@
     <key>CFBundleIdentifier</key>
     <string>com.devlens.desktop</string>
     <key>CFBundleVersion</key>
-    <string>1.0.0</string>
+    <string>1.0.1</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>1.0.1</string>
     <key>CFBundleExecutable</key>
     <string>DevLens</string>
     <key>CFBundlePackageType</key>
@@ -28,5 +28,9 @@
     <string>DevLens wymaga dostępu do dokumentów i projektów w celu zdalnej eksploracji plików.</string>
     <key>NSDownloadsFolderUsageDescription</key>
     <string>DevLens zapisuje pobrane i transferowane pliki w folderze Pobrane.</string>
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>DevLens wymaga dostępu do folderu Biurko w celu zdalnej eksploracji plików.</string>
+    <key>NSRemovableVolumesUsageDescription</key>
+    <string>DevLens wymaga dostępu do dysków wymiennych i zewnętrznych w celu zdalnej eksploracji plików i projektów.</string>
 </dict>
 </plist>

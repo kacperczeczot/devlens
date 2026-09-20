@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
-  "apkUrl": "https://github.com/kacperczeczot/devlens/releases/download/v1.0.0/DevLens.apk",
-  "notes": "Wydanie v1.0.0: DevLens - zdalny eksplorator plików, audytor uprawnień węzłów i zaawansowany czytnik dokumentacji dla deweloperów."
+  "version": "1.0.1",
+  "apkUrl": "https://github.com/kacperczeczot/devlens/releases/download/v1.0.1/DevLens.apk",
+  "notes": "Wydanie v1.0.1: Poprawa obsługi dysków zewnętrznych /Volumes, audytu uprawnień TCC w macOS oraz eliminacja timeoutów przy eksploracji katalogów."
 }
