@@ -1,0 +1,367 @@
+package com.devlens.ui.components
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.PushPin
+import androidx.compose.material3.*
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.devlens.data.DevLensNode
+import com.devlens.ui.theme.*
+
+fun getNodeDeviceIcon(node: DevLensNode): ImageVector {
+    val platformLower = (node.systemInfo?.osName ?: node.platform).lowercase()
+    val nameLower = node.displayName.lowercase()
+
+    return when {
+        platformLower.contains("android") || nameLower.contains("phone") || nameLower.contains("android") -> Icons.Default.Smartphone
+        platformLower.contains("ios") || nameLower.contains("iphone") || nameLower.contains("ipad") -> Icons.Default.Smartphone
+        platformLower.contains("darwin") || platformLower.contains("mac") || platformLower.contains("os x") || platformLower.contains("macos") -> {
+            if (nameLower.contains("book") || nameLower.contains("laptop") || nameLower.contains("air") || nameLower.contains("pro")) {
+                Icons.Default.LaptopMac
+            } else {
+                Icons.Default.DesktopMac
+            }
+        }
+        platformLower.contains("win") -> Icons.Default.DesktopWindows
+        platformLower.contains("linux") || platformLower.contains("unix") || platformLower.contains("bsd") -> {
+            if (nameLower.contains("laptop") || nameLower.contains("thinkpad") || nameLower.contains("notebook")) {
+                Icons.Default.Laptop
+            } else {
+                Icons.Default.Terminal
+            }
+        }
+        nameLower.contains("laptop") || nameLower.contains("notebook") -> Icons.Default.Laptop
+        else -> Icons.Default.Computer
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+@Composable
+fun NodeCard(
+    node: DevLensNode,
+    onFilesClick: (DevLensNode) -> Unit,
+    onPermissionsClick: ((DevLensNode) -> Unit)? = null,
+    onRefreshClick: (DevLensNode) -> Unit,
+    onDeleteClick: ((DevLensNode) -> Unit)? = null,
+    onRenameClick: ((DevLensNode) -> Unit)? = null,
+    onTogglePinClick: ((DevLensNode) -> Unit)? = null
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .border(
+                1.dp,
+                if (node.isPinned) DevLensCardBorder else androidx.compose.ui.graphics.SolidColor(BorderDark),
+                RoundedCornerShape(16.dp)
+            )
+            .clickable(enabled = node.isOnline) { onFilesClick(node) },
+        colors = CardDefaults.cardColors(containerColor = SurfaceDark)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            // Header: Name + Status Badge
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = getNodeDeviceIcon(node),
+                        contentDescription = null,
+                        tint = if (node.isOnline) AccentCyan else TextMuted,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = node.displayName,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            if (node.isPinned) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Icon(
+                                    imageVector = Icons.Default.PushPin,
+                                    contentDescription = "Przypięty",
+                                    tint = AccentCyan,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                            if (onRenameClick != null) {
+                                Spacer(modifier = Modifier.width(4.dp))
+                                IconButton(
+                                    onClick = { onRenameClick(node) },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Edit,
+                                        contentDescription = "Zmień nazwę",
+                                        tint = TextSecondary.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            }
+                        }
+                        val subtitle = if (node.customName != null) {
+                            "${node.name} • ${node.host}:${node.port} • ${node.platform}"
+                        } else {
+                            "${node.host}:${node.port} • ${node.platform}"
+                        }
+                        Text(
+                            text = subtitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(10.dp))
+
+                // Online/Offline badge
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = if (node.isOnline) AccentGreen.copy(alpha = 0.15f) else AccentRed.copy(alpha = 0.15f)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(if (node.isOnline) AccentGreen else AccentRed)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (node.isOnline) "${node.lastPingMs} ms" else "Offline",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (node.isOnline) AccentGreen else AccentRed,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // System specs (CPU, RAM) if online
+            if (node.isOnline && node.systemInfo != null) {
+                val sys = node.systemInfo
+
+                // CPU
+                if (sys.cpuBrand != null || sys.cpuUsagePct != null) {
+                    val rawUsage = (sys.cpuUsagePct ?: 0.0).toFloat()
+                    val usage = if (rawUsage.isNaN() || rawUsage.isInfinite()) 0f else rawUsage.coerceIn(0f, 100f)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "CPU: ${sys.cpuBrand?.take(22) ?: "Procesor"}",
+                            fontSize = 12.sp,
+                            color = TextSecondary
+                        )
+                        Text(
+                            text = "${String.format(java.util.Locale.US, "%.1f", usage)}%",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = AccentCyan
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    LinearProgressIndicator(
+                        progress = { usage / 100f },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp)),
+                        color = AccentCyan,
+                        trackColor = SurfaceVariantDark
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+
+                // RAM
+                if (sys.memory != null) {
+                    val mem = sys.memory
+                    val usedGb = mem.usedMb / 1024.0
+                    val totalGb = mem.totalMb / 1024.0
+                    val rawPct = (mem.usagePct / 100.0).toFloat()
+                    val pct = if (rawPct.isNaN() || rawPct.isInfinite()) 0f else rawPct.coerceIn(0f, 1f)
+                    val displayPct = if (mem.usagePct.isNaN() || mem.usagePct.isInfinite()) 0.0 else mem.usagePct
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "RAM (${String.format(java.util.Locale.US, "%.1f", usedGb)} / ${String.format(java.util.Locale.US, "%.1f", totalGb)} GB)",
+                            fontSize = 12.sp,
+                            color = TextSecondary
+                        )
+                        Text(
+                            text = "${String.format(java.util.Locale.US, "%.1f", displayPct)}%",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = AccentIndigo
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    LinearProgressIndicator(
+                        progress = { pct },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp)),
+                        color = AccentIndigo,
+                        trackColor = SurfaceVariantDark
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+
+                // Disks preview
+                if (!sys.disks.isNullOrEmpty()) {
+                    val mainDisk = sys.disks.first()
+                    Text(
+                        text = "Dysk: ${mainDisk.name} (${mainDisk.availableGb} GB wolne z ${mainDisk.totalGb} GB)",
+                        fontSize = 12.sp,
+                        color = TextMuted
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Action Buttons
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (onPermissionsClick != null && node.isOnline) {
+                        OutlinedButton(
+                            onClick = { onPermissionsClick(node) },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, BorderDark)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Security,
+                                contentDescription = null,
+                                tint = AccentViolet,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Audyt", fontSize = 13.sp, color = TextPrimary)
+                        }
+                    }
+
+                    IconButton(
+                        onClick = { onRefreshClick(node) },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Odśwież",
+                            tint = TextSecondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    if (onTogglePinClick != null) {
+                        IconButton(
+                            onClick = { onTogglePinClick(node) },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (node.isPinned) Icons.Default.PushPin else Icons.Outlined.PushPin,
+                                contentDescription = if (node.isPinned) "Odepnij" else "Przypnij",
+                                tint = if (node.isPinned) AccentCyan else TextSecondary.copy(alpha = 0.6f),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                    if (onDeleteClick != null) {
+                        IconButton(
+                            onClick = { onDeleteClick(node) },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.DeleteOutline,
+                                contentDescription = "Usuń węzeł",
+                                tint = TextSecondary.copy(alpha = 0.6f),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+
+                if (node.isOnline) {
+                    Button(
+                        onClick = { onFilesClick(node) },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                        contentPadding = PaddingValues(0.dp),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .background(DevLensButtonGradient, RoundedCornerShape(10.dp))
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.FolderOpen,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Pliki", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

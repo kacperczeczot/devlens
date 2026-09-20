@@ -1,0 +1,6 @@
+{
+  "version": "2.8.7",
+  "apkUrl": "https://github.com/kacperczeczot/antigravity-mesh/releases/download/v2.8.7/AntigravityMesh.apk",
+  "notes": "Wydanie v2.8.7: Reaktywna aktualizacja i czyszczenie dymków błędów po weryfikacji statusu zadania na węźle, przycisk natychmiastowego odrzucenia/usunięcia błędu, obsługa anulowania wgrywania i pobierania plików w eksploratorze oraz stabilizacja środowiska uruchomieniowego."
+}
+

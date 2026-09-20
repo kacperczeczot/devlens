@@ -1,0 +1,223 @@
+package com.devlens.data
+
+import com.google.gson.annotations.SerializedName
+
+data class DevLensNode(
+    val id: String,
+    val name: String,
+    val host: String,
+    val port: Int = 8888,
+    val token: String,
+    val platform: String = "Unknown",
+    val isOnline: Boolean = false,
+    val lastPingMs: Long = 0,
+    val systemInfo: SystemInfoResponse? = null,
+    val isPinned: Boolean = false,
+    val customName: String? = null
+) {
+    val displayName: String
+        get() = customName?.takeIf { it.isNotBlank() } ?: name
+}
+
+data class SystemInfoResponse(
+    @SerializedName("node_name") val nodeName: String? = null,
+    @SerializedName("os_name") val osName: String? = null,
+    @SerializedName("os_version") val osVersion: String? = null,
+    @SerializedName("cpu_brand") val cpuBrand: String? = null,
+    @SerializedName("cpu_count") val cpuCount: Int? = null,
+    @SerializedName("cpu_usage_pct") val cpuUsagePct: Double? = null,
+    @SerializedName("memory") val memory: MemoryInfo? = null,
+    @SerializedName("disks") val disks: List<DiskInfo>? = null,
+    @SerializedName("cwd") val cwd: String? = null,
+    @SerializedName("engine") val engine: String? = null
+)
+
+data class MemoryInfo(
+    @SerializedName("total_mb") val totalMb: Long = 0,
+    @SerializedName("used_mb") val usedMb: Long = 0,
+    @SerializedName("free_mb") val freeMb: Long = 0,
+    @SerializedName("usage_pct") val usagePct: Double = 0.0
+)
+
+data class DiskInfo(
+    val name: String = "",
+    @SerializedName("mount_point") val mountPoint: String = "",
+    @SerializedName("total_gb") val totalGb: Long = 0,
+    @SerializedName("available_gb") val availableGb: Long = 0
+)
+
+data class HealthResponse(
+    val status: String = "",
+    val platform: String = "",
+    val node: String = "",
+    val engine: String? = null
+)
+
+data class PairRequest(
+    @SerializedName("node_name") val nodeName: String,
+    val host: String? = null,
+    val port: Int = 8888,
+    val token: String,
+    val pin: String? = null
+)
+
+data class PairResponse(
+    val status: String = "",
+    @SerializedName("node_name") val nodeName: String = "",
+    val token: String = "",
+    val platform: String = "",
+    val error: String? = null
+)
+
+data class FileQueryRequest(
+    val path: String = ".",
+    @SerializedName("max_depth") val maxDepth: Int = 1
+)
+
+data class FileQueryResponse(
+    val path: String = "",
+    @SerializedName("current_path") val currentPath: String = "",
+    @SerializedName("parent_path") val parentPath: String? = null,
+    val count: Int = 0,
+    val items: List<FileItem> = emptyList(),
+    val error: String? = null
+)
+
+data class FileItem(
+    val name: String = "",
+    val type: String = "file",
+    @SerializedName("is_dir") val isDir: Boolean = false,
+    @SerializedName("is_symlink") val isSymlink: Boolean = false,
+    @SerializedName("symlink_target") val symlinkTarget: String? = null,
+    val size: Long = 0,
+    val modified: Long = 0,
+    val path: String = ""
+) {
+    val isDirectory: Boolean
+        get() = isDir || type == "dir"
+
+    val formattedSize: String
+        get() {
+            if (isDirectory) return ""
+            return when {
+                size < 1024 -> "$size B"
+                size < 1024 * 1024 -> String.format(java.util.Locale.US, "%.1f KB", size / 1024.0)
+                size < 1024 * 1024 * 1024 -> String.format(java.util.Locale.US, "%.1f MB", size / (1024.0 * 1024.0))
+                else -> String.format(java.util.Locale.US, "%.2f GB", size / (1024.0 * 1024.0 * 1024.0))
+            }
+        }
+}
+
+data class ReadFileRequest(
+    val path: String
+)
+
+data class ReadFileResponse(
+    val path: String = "",
+    val name: String = "",
+    val size: Long = 0,
+    val content: String = "",
+    @SerializedName("is_binary") val isBinary: Boolean = false,
+    @SerializedName("is_dir") val isDir: Boolean = false,
+    @SerializedName("mime_type") val mimeType: String? = null,
+    val error: String? = null
+)
+
+data class UploadFileResponse(
+    val success: Boolean = false,
+    val path: String? = null,
+    @SerializedName("bytes_written") val bytesWritten: Long = 0L,
+    val error: String? = null
+)
+
+data class PermissionAuditReport(
+    val timestamp: Long = 0,
+    val platform: String = "",
+    @SerializedName("os_version") val osVersion: String = "",
+    val arch: String = "",
+    @SerializedName("all_granted") val allGranted: Boolean = false,
+    @SerializedName("overall_status") val overallStatus: String = "action_required",
+    val summary: String = "",
+    val accessibility: AccessibilityCheck = AccessibilityCheck(),
+    @SerializedName("full_disk_access") val fullDiskAccess: FullDiskAccessCheck = FullDiskAccessCheck(),
+    val filesystem: FileSystemCheck = FileSystemCheck(),
+    val codesign: CodeSignCheck = CodeSignCheck(),
+    @SerializedName("process_execution") val processExecution: ProcessExecutionCheck = ProcessExecutionCheck(),
+    val toolchains: ToolchainsCheck = ToolchainsCheck(),
+    val network: NetworkDiagnosticCheck = NetworkDiagnosticCheck(),
+    @SerializedName("autostart_enabled") val autostartEnabled: Boolean = false,
+    val recommendations: List<String> = emptyList()
+)
+
+data class AccessibilityCheck(
+    val granted: Boolean = false,
+    val status: String = "not_applicable",
+    val message: String = ""
+)
+
+data class FullDiskAccessCheck(
+    val granted: Boolean = false,
+    val status: String = "not_applicable",
+    @SerializedName("probed_path") val probedPath: String = "",
+    val message: String = ""
+)
+
+data class PathPermission(
+    val name: String = "",
+    val path: String = "",
+    val readable: Boolean = false,
+    val writable: Boolean = false,
+    val exists: Boolean = false,
+    val error: String? = null
+)
+
+data class FileSystemCheck(
+    @SerializedName("all_passed") val allPassed: Boolean = false,
+    val paths: List<PathPermission> = emptyList()
+)
+
+data class CodeSignCheck(
+    val valid: Boolean = false,
+    val identifier: String? = null,
+    @SerializedName("team_id") val teamId: String? = null,
+    val authority: String? = null,
+    @SerializedName("designated_requirement_ok") val designatedRequirementOk: Boolean = false,
+    @SerializedName("quarantine_active") val quarantineActive: Boolean = false,
+    val message: String = ""
+)
+
+data class ProcessExecutionCheck(
+    @SerializedName("can_spawn") val canSpawn: Boolean = false,
+    @SerializedName("latency_ms") val latencyMs: Long = 0,
+    val message: String = ""
+)
+
+data class ToolchainItem(
+    val name: String = "",
+    val found: Boolean = false,
+    val path: String? = null,
+    val version: String? = null
+)
+
+data class ToolchainsCheck(
+    val items: List<ToolchainItem> = emptyList()
+)
+
+data class NetworkDiagnosticCheck(
+    @SerializedName("listen_port") val listenPort: Int = 8888,
+    @SerializedName("tailscale_detected") val tailscaleDetected: Boolean = false,
+    @SerializedName("tailscale_ip") val tailscaleIp: String? = null,
+    @SerializedName("lan_ips") val lanIps: List<String> = emptyList(),
+    @SerializedName("internet_connectivity") val internetConnectivity: Boolean = false,
+    @SerializedName("ping_ms") val pingMs: Long? = null
+)
+
+data class PermissionFixRequest(
+    val action: String
+)
+
+data class PermissionFixResponse(
+    val success: Boolean = false,
+    val action: String = "",
+    val message: String = ""
+)

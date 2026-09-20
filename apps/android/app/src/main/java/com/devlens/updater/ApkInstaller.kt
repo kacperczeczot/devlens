@@ -1,0 +1,291 @@
+package com.devlens.updater
+
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageInstaller
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
+import android.widget.Toast
+import androidx.core.content.FileProvider
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.concurrent.Executors
+
+/**
+ * Handles secure downloading and installation of APK updates.
+ */
+object ApkInstaller {
+    private val executor = Executors.newSingleThreadExecutor()
+
+    private val mainHandler by lazy {
+        try {
+            android.os.Handler(android.os.Looper.getMainLooper())
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    internal fun runOnMain(block: () -> Unit) {
+        val handler = mainHandler
+        try {
+            if (handler != null && android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+                handler.post(block)
+            } else {
+                block()
+            }
+        } catch (_: Throwable) {
+            block()
+        }
+    }
+
+    const val INSTALL_STATUS_ACTION = "com.devlens.APK_INSTALL_STATUS"
+
+    private const val MAX_REDIRECTS = 5
+
+    fun canInstallPackages(context: Context): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.packageManager.canRequestPackageInstalls()
+        } else {
+            true
+        }
+    }
+
+    fun unknownSourcesSettingsIntent(context: Context): Intent {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Intent(
+                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                Uri.parse("package:${context.packageName}")
+            )
+        } else {
+            Intent(Settings.ACTION_SECURITY_SETTINGS)
+        }
+    }
+
+    fun isAllowedApkUrl(apkUrl: String): Boolean {
+        val uri = runCatching { java.net.URI(apkUrl) }.getOrNull() ?: return false
+        val scheme = uri.scheme?.lowercase() ?: return false
+        val host = uri.host?.lowercase() ?: return false
+
+        if (scheme != "https") return false
+
+        return host == "github.com" || host.endsWith(".github.com") ||
+                host == "githubusercontent.com" || host.endsWith(".githubusercontent.com") ||
+                host == "github.io" || host.endsWith(".github.io") ||
+                host == "amazonaws.com" || host.endsWith(".amazonaws.com")
+    }
+
+    fun getCachedApk(context: Context): File {
+        return File(context.cacheDir, "antigravity-mesh-update.apk")
+    }
+
+    fun isApkReady(context: Context, expectedVersion: String? = null): File? {
+        val dest = getCachedApk(context)
+        if (!dest.exists() || dest.length() <= 0L) return null
+        val isValid = runCatching {
+            verifyApkOrThrow(context, dest)
+            if (expectedVersion != null) {
+                val pm = context.packageManager
+                val info = pm.getPackageArchiveInfo(dest.absolutePath, 0)
+                if (info?.versionName != expectedVersion) {
+                    error("Wersja w cache (${info?.versionName}) nie pasuje do oczekiwanej ($expectedVersion)")
+                }
+            }
+        }.isSuccess
+        return if (isValid) dest else null
+    }
+
+    fun downloadThenInstall(
+        context: Context,
+        apkUrl: String,
+        expectedVersion: String? = null,
+        onProgress: ((progressText: String, progressFraction: Float) -> Unit)? = null,
+        onError: (String) -> Unit,
+        onReadyToInstall: (File) -> Unit,
+    ) {
+        executor.execute {
+            val cached = isApkReady(context, expectedVersion)
+            if (cached != null) {
+                runOnMain {
+                    onProgress?.invoke("Plik aktualizacji jest gotowy", 1f)
+                    onReadyToInstall(cached)
+                }
+                return@execute
+            }
+
+            val result = runCatching {
+                if (!isAllowedApkUrl(apkUrl)) {
+                    error("Niedozwolony adres URL aktualizacji")
+                }
+                runOnMain { onProgress?.invoke("Pobieranie pliku APK…", 0f) }
+                val dest = getCachedApk(context)
+                if (dest.exists()) {
+                    dest.delete()
+                }
+
+                downloadTo(apkUrl, dest) { text, frac ->
+                    runOnMain { onProgress?.invoke(text, frac) }
+                }
+                runOnMain { onProgress?.invoke("Weryfikacja pakietu…", 1f) }
+                verifyApkOrThrow(context, dest)
+                dest
+            }
+
+            val file = result.getOrNull()
+            if (file == null) {
+                val err = result.exceptionOrNull()?.message ?: "Błąd pobierania aktualizacji"
+                runOnMain { onError(err) }
+                return@execute
+            }
+            runOnMain { onReadyToInstall(file) }
+        }
+    }
+
+    /**
+     * Installs APK using standard FileProvider Intent with fallback to PackageInstaller Session.
+     * Guaranteed to execute on the Android Main Looper thread.
+     */
+    fun install(context: Context, apkFile: File) {
+        runOnMain {
+            try {
+                val uri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    apkFile
+                )
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, "application/vnd.android.package-archive")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                }
+                val resInfoList = context.packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
+                for (resolveInfo in resInfoList) {
+                    context.grantUriPermission(resolveInfo.activityInfo.packageName, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(intent)
+            } catch (e: Exception) {
+                // Fallback to PackageInstaller Session
+                runCatching {
+                    installViaPackageInstaller(context, apkFile)
+                }.onFailure { fallbackEx ->
+                    Toast.makeText(
+                        context,
+                        "Nie udało się uruchomić instalacji: ${fallbackEx.message ?: e.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
+
+    private fun installViaPackageInstaller(context: Context, apkFile: File) {
+        val installer = context.packageManager.packageInstaller
+        val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
+            setAppPackageName(context.packageName)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_REQUIRED)
+            }
+        }
+
+        val sessionId = installer.createSession(params)
+        installer.openSession(sessionId).use { session ->
+            session.openWrite("base.apk", 0, apkFile.length()).use { out ->
+                apkFile.inputStream().use { input -> input.copyTo(out) }
+                session.fsync(out)
+            }
+
+            val statusIntent = Intent(INSTALL_STATUS_ACTION).setPackage(context.packageName)
+            val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        PendingIntent.FLAG_MUTABLE
+                    } else {
+                        0
+                    }
+            val pendingIntent = PendingIntent.getBroadcast(context, sessionId, statusIntent, flags)
+            session.commit(pendingIntent.intentSender)
+        }
+    }
+
+    internal fun verifyApkOrThrow(context: Context, apkFile: File) {
+        val pm = context.packageManager
+        val archive = pm.getPackageArchiveInfo(apkFile.absolutePath, 0)
+            ?: error("Pobrany plik nie jest prawidłowym plikiem APK")
+
+        if (archive.packageName != context.packageName) {
+            error("Niewłaściwy pakiet aplikacji (${archive.packageName} != ${context.packageName})")
+        }
+    }
+
+    private fun downloadTo(
+        apkUrl: String,
+        dest: File,
+        onProgress: ((String, Float) -> Unit)?
+    ) {
+        var current = apkUrl.trim()
+        var redirects = 0
+
+        while (true) {
+            if (!isAllowedApkUrl(current)) {
+                error("Niedozwolone przekierowanie URL")
+            }
+
+            val url = URL(current)
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                connectTimeout = 15_000
+                readTimeout = 120_000
+                requestMethod = "GET"
+                instanceFollowRedirects = false
+                setRequestProperty("User-Agent", "AntigravityMesh-Downloader")
+            }
+
+            try {
+                val code = conn.responseCode
+                if (code in 300..399) {
+                    val location = conn.getHeaderField("Location")
+                        ?: error("Brak nagłówka Location przy przekierowaniu")
+                    redirects++
+                    if (redirects > MAX_REDIRECTS) error("Zbyt wiele przekierowań")
+                    current = if (location.startsWith("http://") || location.startsWith("https://")) {
+                        location
+                    } else {
+                        URL(url, location).toString()
+                    }
+                    continue
+                }
+
+                if (code !in 200..299) {
+                    error("Błąd serwera HTTP $code")
+                }
+
+                val contentLength = conn.contentLengthLong
+                var bytesRead = 0L
+
+                conn.inputStream.use { input ->
+                    dest.outputStream().use { output ->
+                        val buffer = ByteArray(8192)
+                        var read: Int
+                        while (input.read(buffer).also { read = it } != -1) {
+                            output.write(buffer, 0, read)
+                            bytesRead += read
+                            if (contentLength > 0 && onProgress != null) {
+                                val frac = (bytesRead.toFloat() / contentLength.toFloat()).coerceIn(0f, 1f)
+                                val mbRead = bytesRead / (1024 * 1024)
+                                val mbTotal = contentLength / (1024 * 1024)
+                                onProgress("Pobrano $mbRead MB / $mbTotal MB (${(frac * 100).toInt()}%)", frac)
+                            }
+                        }
+                    }
+                }
+
+                if (dest.length() <= 0L) error("Pusty plik aktualizacji")
+                return
+            } finally {
+                conn.disconnect()
+            }
+        }
+    }
+}

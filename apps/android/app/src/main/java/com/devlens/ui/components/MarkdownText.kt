@@ -1,0 +1,3048 @@
+package com.devlens.ui.components
+
+import android.content.Context
+import android.os.Build
+import android.widget.Toast
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebChromeClient
+import android.graphics.Bitmap
+import android.webkit.ConsoleMessage
+import android.webkit.WebResourceError
+import androidx.webkit.WebViewAssetLoader
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.*
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.BaselineShift
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.devlens.ui.theme.*
+
+private enum class CalloutType(
+    val title: String,
+    val icon: ImageVector,
+    val color: Color
+) {
+    NOTE("NOTE", Icons.Default.Info, AccentCyan),
+    TIP("TIP", Icons.Default.Lightbulb, AccentGreen),
+    IMPORTANT("IMPORTANT", Icons.Default.PriorityHigh, AccentViolet),
+    WARNING("WARNING", Icons.Default.Warning, AccentAmber),
+    CAUTION("CAUTION", Icons.Default.ErrorOutline, AccentRed)
+}
+
+/**
+ * Rich, complete Jetpack Compose Markdown renderer supporting:
+ * - Headers H1-H6
+ * - Text styling: bold (** and __), italic (* and _), bold-italic (*** and ___), strikethrough (~~)
+ * - Tags: <kbd>, <sub>, <sup>, <br>
+ * - GFM Callout Alerts: [!NOTE], [!TIP], [!IMPORTANT], [!WARNING], [!CAUTION]
+ * - Interactive Task Lists: - [ ] and - [x]
+ * - Ordered (numbered) lists: 1., 2.
+ * - Unordered bullet lists: - and *
+ * - Horizontal rules: ---, ***, ___
+ * - Tables with column alignments (:---, :---:, ---:)
+ * - Interactive HTML details/summary accordions (<details><summary>)
+ * - Code blocks with copy button & language pill
+ * - LaTeX / Math blocks ($$ ... $$) and inline math ($...$)
+ * - Links: markdown links [text](url) and bare URLs
+ */
+@Composable
+fun MarkdownText(
+    markdown: String,
+    textColor: Color = TextPrimary,
+    modifier: Modifier = Modifier,
+    onLinkClick: ((String) -> Unit)? = null
+) {
+    val lines = markdown.split("\n")
+
+    // Block accumulation states
+    var inCodeBlock = false
+    var currentLanguage: String? = null
+    val currentCodeBlock = StringBuilder()
+
+    var inMathBlock = false
+    val currentMathBlock = StringBuilder()
+
+    val currentTableLines = mutableListOf<String>()
+
+    var activeCalloutType: CalloutType? = null
+    val currentCalloutLines = mutableListOf<String>()
+
+    val currentBlockquoteLines = mutableListOf<String>()
+
+    var inDetailsBlock = false
+    var inSummaryTag = false
+    var detailsSummary: String? = null
+    val currentSummaryContent = StringBuilder()
+    val currentDetailsContent = StringBuilder()
+
+    fun isTableLine(l: String): Boolean {
+        val t = l.trim()
+        return t.startsWith("|") || (t.count { it == '|' } >= 2)
+    }
+
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        for (line in lines) {
+            val trimmedLine = line.trim()
+            val trimmedEnd = line.trimEnd()
+
+            // 0. HTML <details> and <summary> — MUST take priority so inner code blocks belong to details
+            if (inDetailsBlock) {
+                if (trimmedLine.contains("</details>", ignoreCase = true)) {
+                    val beforeClose = trimmedLine.substringBefore("</details>", "")
+                    if (beforeClose.isNotEmpty()) {
+                        if (inSummaryTag) {
+                            val beforeSumClose = beforeClose.substringBefore("</summary>", "")
+                            currentSummaryContent.append(beforeSumClose)
+                            detailsSummary = currentSummaryContent.toString().trim()
+                            val afterSumClose = beforeClose.substringAfter("</summary>", "").trim()
+                            if (afterSumClose.isNotEmpty()) {
+                                if (currentDetailsContent.isNotEmpty()) currentDetailsContent.append("\n")
+                                currentDetailsContent.append(afterSumClose)
+                            }
+                        } else {
+                            if (currentDetailsContent.isNotEmpty()) currentDetailsContent.append("\n")
+                            currentDetailsContent.append(beforeClose)
+                        }
+                    }
+
+                    val finalSummary = detailsSummary?.ifBlank { null }
+                        ?: currentSummaryContent.toString().trim().ifEmpty { "Szczegóły" }
+
+                    ExpandableDetailsBlock(
+                        summary = finalSummary,
+                        content = currentDetailsContent.toString().trim(),
+                        onLinkClick = onLinkClick
+                    )
+
+                    inDetailsBlock = false
+                    inSummaryTag = false
+                    detailsSummary = null
+                    currentDetailsContent.clear()
+                    currentSummaryContent.clear()
+                    continue
+                }
+
+                if (inSummaryTag) {
+                    if (trimmedLine.contains("</summary>", ignoreCase = true)) {
+                        val beforeClose = line.substringBefore("</summary>", "")
+                        currentSummaryContent.append(beforeClose)
+                        detailsSummary = currentSummaryContent.toString().trim()
+                        inSummaryTag = false
+                        val afterClose = line.substringAfter("</summary>", "").trim()
+                        if (afterClose.isNotEmpty()) {
+                            if (currentDetailsContent.isNotEmpty()) currentDetailsContent.append("\n")
+                            currentDetailsContent.append(afterClose)
+                        }
+                    } else {
+                        if (currentSummaryContent.isNotEmpty()) currentSummaryContent.append("\n")
+                        currentSummaryContent.append(line)
+                    }
+                    continue
+                }
+
+                if (trimmedLine.contains("<summary", ignoreCase = true)) {
+                    val afterOpen = line.substringAfter(">", "")
+                    if (afterOpen.contains("</summary>", ignoreCase = true)) {
+                        detailsSummary = afterOpen.substringBefore("</summary>", "").trim()
+                        val afterClose = afterOpen.substringAfter("</summary>", "").trim()
+                        if (afterClose.isNotEmpty()) {
+                            if (currentDetailsContent.isNotEmpty()) currentDetailsContent.append("\n")
+                            currentDetailsContent.append(afterClose)
+                        }
+                    } else {
+                        inSummaryTag = true
+                        currentSummaryContent.append(afterOpen)
+                    }
+                    continue
+                }
+
+                if (currentDetailsContent.isNotEmpty()) currentDetailsContent.append("\n")
+                currentDetailsContent.append(line)
+                continue
+            }
+
+            // Open <details> block: must not be a heading (#) or inline code (`<details`)
+            val isDetailsOpenTag = !trimmedLine.startsWith("#") &&
+                !trimmedLine.contains("`<details") &&
+                (trimmedLine.startsWith("<details", ignoreCase = true) ||
+                 Regex("""(?i)^\s*<details(\s+[^>]*)?>""").containsMatchIn(trimmedLine))
+
+            if (isDetailsOpenTag) {
+                if (currentTableLines.isNotEmpty()) {
+                    MarkdownTable(lines = currentTableLines.toList(), onLinkClick = onLinkClick)
+                    currentTableLines.clear()
+                }
+                if (activeCalloutType != null) {
+                    CalloutAlertCard(type = activeCalloutType!!, body = currentCalloutLines.joinToString("\n"), onLinkClick = onLinkClick)
+                    activeCalloutType = null
+                    currentCalloutLines.clear()
+                }
+                if (currentBlockquoteLines.isNotEmpty()) {
+                    BlockquoteCard(quoteText = currentBlockquoteLines.joinToString("\n"), onLinkClick = onLinkClick)
+                    currentBlockquoteLines.clear()
+                }
+
+                inDetailsBlock = true
+                inSummaryTag = false
+                detailsSummary = null
+                currentDetailsContent.clear()
+                currentSummaryContent.clear()
+
+                val afterDetails = line.substringAfter(">", "")
+                if (afterDetails.contains("<summary", ignoreCase = true)) {
+                    val afterOpen = afterDetails.substringAfter(">", "")
+                    if (afterOpen.contains("</summary>", ignoreCase = true)) {
+                        detailsSummary = afterOpen.substringBefore("</summary>", "").trim()
+                        val afterClose = afterOpen.substringAfter("</summary>", "").trim()
+                        if (afterClose.isNotEmpty()) {
+                            currentDetailsContent.append(afterClose)
+                        }
+                    } else {
+                        inSummaryTag = true
+                        currentSummaryContent.append(afterOpen)
+                    }
+                } else if (afterDetails.trim().isNotEmpty()) {
+                    currentDetailsContent.append(afterDetails.trim())
+                }
+                continue
+            }
+
+            // 1. Multi-line Code Block Handling (```)
+            if (trimmedLine.startsWith("```")) {
+                // Flush other pending blocks
+                if (currentTableLines.isNotEmpty()) {
+                    MarkdownTable(lines = currentTableLines.toList(), onLinkClick = onLinkClick)
+                    currentTableLines.clear()
+                }
+                if (activeCalloutType != null) {
+                    CalloutAlertCard(type = activeCalloutType!!, body = currentCalloutLines.joinToString("\n"), onLinkClick = onLinkClick)
+                    activeCalloutType = null
+                    currentCalloutLines.clear()
+                }
+                if (currentBlockquoteLines.isNotEmpty()) {
+                    BlockquoteCard(quoteText = currentBlockquoteLines.joinToString("\n"), onLinkClick = onLinkClick)
+                    currentBlockquoteLines.clear()
+                }
+
+                if (inCodeBlock) {
+                    val codeContent = currentCodeBlock.toString().trimIndent()
+                    if (currentLanguage?.lowercase()?.trim() == "mermaid") {
+                        MermaidDiagramCard(code = codeContent)
+                    } else {
+                        CodeBlock(code = codeContent, language = currentLanguage)
+                    }
+                    currentCodeBlock.clear()
+                    currentLanguage = null
+                    inCodeBlock = false
+                } else {
+                    val afterOpen = trimmedLine.removePrefix("```")
+                    val closeIdx = afterOpen.lastIndexOf("```")
+                    if (closeIdx != -1) {
+                        // Single-line code block: ```lang code```
+                        val firstSpace = afterOpen.indexOfAny(charArrayOf(' ', '\t'))
+                        val (lang, code) = if (firstSpace != -1 && firstSpace < closeIdx) {
+                            val l = afterOpen.substring(0, firstSpace).trim().ifBlank { null }
+                            val c = afterOpen.substring(firstSpace, closeIdx).trim()
+                            l to c
+                        } else {
+                            null to afterOpen.substring(0, closeIdx).trim()
+                        }
+                        if (lang?.lowercase()?.trim() == "mermaid") {
+                            MermaidDiagramCard(code = code)
+                        } else {
+                            CodeBlock(code = code, language = lang)
+                        }
+                    } else {
+                        currentLanguage = afterOpen.trim().ifBlank { null }
+                        inCodeBlock = true
+                    }
+                }
+                continue
+            }
+
+            if (inCodeBlock) {
+                if (currentCodeBlock.isNotEmpty()) currentCodeBlock.append("\n")
+                currentCodeBlock.append(line)
+                continue
+            }
+
+            // 2. Math Block ($$ ... $$)
+            if (trimmedLine.startsWith("$$") && trimmedLine.endsWith("$$") && trimmedLine.length > 4) {
+                if (currentTableLines.isNotEmpty()) {
+                    MarkdownTable(lines = currentTableLines.toList(), onLinkClick = onLinkClick)
+                    currentTableLines.clear()
+                }
+                if (activeCalloutType != null) {
+                    CalloutAlertCard(type = activeCalloutType!!, body = currentCalloutLines.joinToString("\n"), onLinkClick = onLinkClick)
+                    activeCalloutType = null
+                    currentCalloutLines.clear()
+                }
+                if (currentBlockquoteLines.isNotEmpty()) {
+                    BlockquoteCard(quoteText = currentBlockquoteLines.joinToString("\n"), onLinkClick = onLinkClick)
+                    currentBlockquoteLines.clear()
+                }
+                MathBlock(trimmedLine.removePrefix("$$").removeSuffix("$$").trim())
+                continue
+            }
+
+            if (trimmedLine == "$$" || (trimmedLine.startsWith("$$") && !trimmedLine.endsWith("$$"))) {
+                if (currentTableLines.isNotEmpty()) {
+                    MarkdownTable(lines = currentTableLines.toList(), onLinkClick = onLinkClick)
+                    currentTableLines.clear()
+                }
+                if (activeCalloutType != null) {
+                    CalloutAlertCard(type = activeCalloutType!!, body = currentCalloutLines.joinToString("\n"), onLinkClick = onLinkClick)
+                    activeCalloutType = null
+                    currentCalloutLines.clear()
+                }
+                if (currentBlockquoteLines.isNotEmpty()) {
+                    BlockquoteCard(quoteText = currentBlockquoteLines.joinToString("\n"), onLinkClick = onLinkClick)
+                    currentBlockquoteLines.clear()
+                }
+                if (inMathBlock) {
+                    MathBlock(currentMathBlock.toString().trim())
+                    currentMathBlock.clear()
+                    inMathBlock = false
+                } else {
+                    inMathBlock = true
+                    val rem = trimmedLine.removePrefix("$$").trim()
+                    if (rem.isNotEmpty()) currentMathBlock.append(rem)
+                }
+                continue
+            }
+
+            if (inMathBlock) {
+                if (trimmedLine.endsWith("$$")) {
+                    val rem = trimmedLine.removeSuffix("$$").trim()
+                    if (rem.isNotEmpty()) {
+                        if (currentMathBlock.isNotEmpty()) currentMathBlock.append("\n")
+                        currentMathBlock.append(rem)
+                    }
+                    MathBlock(currentMathBlock.toString().trim())
+                    currentMathBlock.clear()
+                    inMathBlock = false
+                } else {
+                    if (currentMathBlock.isNotEmpty()) currentMathBlock.append("\n")
+                    currentMathBlock.append(line)
+                }
+                continue
+            }
+
+
+
+            // 4. Tables
+            if (isTableLine(trimmedEnd)) {
+                currentTableLines.add(trimmedEnd)
+                continue
+            } else if (currentTableLines.isNotEmpty()) {
+                MarkdownTable(lines = currentTableLines.toList(), onLinkClick = onLinkClick)
+                currentTableLines.clear()
+            }
+
+            // 5. GFM Callout Alert or Blockquote
+            if (trimmedLine.startsWith(">")) {
+                val quoteBody = trimmedLine.removePrefix(">").trimStart()
+                val calloutMatch = Regex("""^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(.*)$""", RegexOption.IGNORE_CASE).find(quoteBody)
+
+                if (calloutMatch != null && activeCalloutType == null) {
+                    val typeStr = calloutMatch.groupValues[1].uppercase()
+                    val rest = calloutMatch.groupValues[2].trim()
+                    activeCalloutType = CalloutType.values().find { it.name == typeStr } ?: CalloutType.NOTE
+                    if (rest.isNotEmpty()) currentCalloutLines.add(rest)
+                    continue
+                } else if (activeCalloutType != null) {
+                    currentCalloutLines.add(quoteBody)
+                    continue
+                } else {
+                    currentBlockquoteLines.add(quoteBody)
+                    continue
+                }
+            } else {
+                if (activeCalloutType != null) {
+                    CalloutAlertCard(type = activeCalloutType!!, body = currentCalloutLines.joinToString("\n"), onLinkClick = onLinkClick)
+                    activeCalloutType = null
+                    currentCalloutLines.clear()
+                }
+                if (currentBlockquoteLines.isNotEmpty()) {
+                    BlockquoteCard(quoteText = currentBlockquoteLines.joinToString("\n"), onLinkClick = onLinkClick)
+                    currentBlockquoteLines.clear()
+                }
+            }
+
+            // Blank line
+            if (trimmedLine.isBlank()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                continue
+            }
+
+            val leadingSpaces = trimmedEnd.length - trimmedEnd.trimStart().length
+            val indentPadding = if (leadingSpaces > 0) (4 + (leadingSpaces / 2) * 8).dp else 4.dp
+            val stripped = trimmedLine
+
+            // 6. Horizontal Rule (---, ***, ___)
+            if (stripped == "---" || stripped == "***" || stripped == "___" || stripped.matches(Regex("""^[-*_]{3,}$"""))) {
+                HorizontalDivider(
+                    color = BorderDark,
+                    thickness = 1.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp)
+                )
+                continue
+            }
+
+            // 7. Task Lists (- [ ] or - [x])
+            val taskMatch = Regex("""^(\s*)[-\*]\s+\[([ xX])\]\s*(.*)$""").find(line)
+            if (taskMatch != null) {
+                val leadingSpaceCount = taskMatch.groupValues[1].length
+                val isChecked = taskMatch.groupValues[2].equals("x", ignoreCase = true)
+                val taskText = taskMatch.groupValues[3]
+                val itemIndent = if (leadingSpaceCount > 0) (4 + (leadingSpaceCount / 2) * 8).dp else 4.dp
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = itemIndent, top = 2.dp, bottom = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = if (isChecked) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                        contentDescription = if (isChecked) "Wykonane" else "Do zrobienia",
+                        tint = if (isChecked) AccentCyan else TextMuted,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = parseInlineMarkdown(taskText, onLinkClick),
+                        fontSize = 14.sp,
+                        color = if (isChecked) TextMuted else textColor,
+                        textDecoration = if (isChecked) TextDecoration.LineThrough else TextDecoration.None,
+                        lineHeight = 20.sp,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                continue
+            }
+
+            // 8. Numbered Lists (1., 2., etc.)
+            val numMatch = Regex("""^(\s*)(\d+)[\.\)]\s*(.*)$""").find(line)
+            if (numMatch != null) {
+                val leadingSpaceCount = numMatch.groupValues[1].length
+                val number = numMatch.groupValues[2]
+                val itemText = numMatch.groupValues[3]
+                val itemIndent = if (leadingSpaceCount > 0) (4 + (leadingSpaceCount / 2) * 8).dp else 4.dp
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = itemIndent, top = 1.dp, bottom = 1.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Text(
+                        text = "$number.",
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        color = AccentCyan,
+                        modifier = Modifier.widthIn(min = 24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = parseInlineMarkdown(itemText, onLinkClick),
+                        fontSize = 14.sp,
+                        color = textColor,
+                        lineHeight = 20.sp,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                continue
+            }
+
+            // 9. Headings H1 - H6
+            when {
+                stripped.startsWith("###### ") -> {
+                    Text(
+                        text = parseInlineMarkdown(stripped.removePrefix("###### "), onLinkClick),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextMuted,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+                stripped.startsWith("##### ") -> {
+                    Text(
+                        text = parseInlineMarkdown(stripped.removePrefix("##### "), onLinkClick),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextSecondary,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+                stripped.startsWith("#### ") -> {
+                    Text(
+                        text = parseInlineMarkdown(stripped.removePrefix("#### "), onLinkClick),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = AccentCyan,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+                }
+                stripped.startsWith("### ") -> {
+                    Text(
+                        text = parseInlineMarkdown(stripped.removePrefix("### "), onLinkClick),
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = textColor,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+                }
+                stripped.startsWith("## ") -> {
+                    Text(
+                        text = parseInlineMarkdown(stripped.removePrefix("## "), onLinkClick),
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = textColor,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+                stripped.startsWith("# ") -> {
+                    Text(
+                        text = parseInlineMarkdown(stripped.removePrefix("# "), onLinkClick),
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = textColor,
+                        modifier = Modifier.padding(top = 10.dp)
+                    )
+                }
+                stripped.startsWith("- ") || stripped.startsWith("* ") -> {
+                    Row(
+                        modifier = Modifier.padding(start = indentPadding, top = 1.dp, bottom = 1.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Text(text = "• ", fontWeight = FontWeight.Bold, color = AccentCyan, fontSize = 14.sp)
+                        Text(
+                            text = parseInlineMarkdown(stripped.substring(2), onLinkClick),
+                            fontSize = 14.sp,
+                            color = textColor,
+                            lineHeight = 20.sp,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+                else -> {
+                    Text(
+                        text = parseInlineMarkdown(trimmedEnd, onLinkClick),
+                        fontSize = 14.sp,
+                        color = textColor,
+                        lineHeight = 20.sp
+                    )
+                }
+            }
+        }
+
+        // Flush remaining buffers after loop
+        if (currentTableLines.isNotEmpty()) {
+            MarkdownTable(lines = currentTableLines.toList(), onLinkClick = onLinkClick)
+        }
+        if (activeCalloutType != null) {
+            CalloutAlertCard(type = activeCalloutType!!, body = currentCalloutLines.joinToString("\n"), onLinkClick = onLinkClick)
+        }
+        if (currentBlockquoteLines.isNotEmpty()) {
+            BlockquoteCard(quoteText = currentBlockquoteLines.joinToString("\n"), onLinkClick = onLinkClick)
+        }
+        if (inCodeBlock && currentCodeBlock.isNotEmpty()) {
+            val codeContent = currentCodeBlock.toString().trimIndent()
+            if (currentLanguage?.lowercase()?.trim() == "mermaid") {
+                MermaidDiagramCard(code = codeContent)
+            } else {
+                CodeBlock(code = codeContent, language = currentLanguage)
+            }
+        }
+        if (inMathBlock && currentMathBlock.isNotEmpty()) {
+            MathBlock(formula = currentMathBlock.toString().trim())
+        }
+        if (inDetailsBlock && currentDetailsContent.isNotEmpty()) {
+            ExpandableDetailsBlock(
+                summary = detailsSummary ?: "Szczegóły",
+                content = currentDetailsContent.toString().trim(),
+                onLinkClick = onLinkClick
+            )
+        }
+    }
+}
+
+/**
+ * GFM Callout Alert Card ([!NOTE], [!TIP], [!IMPORTANT], [!WARNING], [!CAUTION])
+ */
+@Composable
+private fun CalloutAlertCard(
+    type: CalloutType,
+    body: String,
+    onLinkClick: ((String) -> Unit)? = null
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .border(1.dp, type.color.copy(alpha = 0.35f), RoundedCornerShape(8.dp)),
+        colors = CardDefaults.cardColors(containerColor = type.color.copy(alpha = 0.08f))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Min)
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .fillMaxHeight()
+                    .background(type.color)
+            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = type.icon,
+                        contentDescription = null,
+                        tint = type.color,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = type.title,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = type.color
+                    )
+                }
+                if (body.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = parseInlineMarkdown(body, onLinkClick),
+                        fontSize = 13.sp,
+                        color = TextPrimary,
+                        lineHeight = 18.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Styled Blockquote Card for markdown `> quote`
+ */
+@Composable
+private fun BlockquoteCard(
+    quoteText: String,
+    onLinkClick: ((String) -> Unit)? = null
+) {
+    val lines = quoteText.lines()
+    val hasNested = lines.any { it.trimStart().startsWith(">") }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(IntrinsicSize.Min)
+            .clip(RoundedCornerShape(topEnd = 6.dp, bottomEnd = 6.dp))
+            .background(SurfaceVariantDark.copy(alpha = 0.5f))
+            .padding(end = 8.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .width(3.5.dp)
+                .fillMaxHeight()
+                .background(AccentCyan.copy(alpha = 0.6f))
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            if (!hasNested) {
+                Text(
+                    text = parseInlineMarkdown(quoteText, onLinkClick),
+                    fontSize = 13.5.sp,
+                    fontStyle = FontStyle.Italic,
+                    color = TextSecondary,
+                    lineHeight = 19.sp
+                )
+            } else {
+                val segments = mutableListOf<Pair<List<String>, Boolean>>()
+                val currentGroup = mutableListOf<String>()
+                var currentIsNested = false
+
+                for (l in lines) {
+                    val isLNested = l.trimStart().startsWith(">")
+                    val cleaned = if (isLNested) l.trimStart().removePrefix(">").trimStart() else l
+                    if (isLNested != currentIsNested) {
+                        if (currentGroup.isNotEmpty()) {
+                            segments.add(currentGroup.toList() to currentIsNested)
+                            currentGroup.clear()
+                        }
+                        currentIsNested = isLNested
+                    }
+                    currentGroup.add(cleaned)
+                }
+                if (currentGroup.isNotEmpty()) {
+                    segments.add(currentGroup.toList() to currentIsNested)
+                }
+
+                for ((group, isNested) in segments) {
+                    val text = group.joinToString("\n")
+                    if (isNested) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(topEnd = 4.dp, bottomEnd = 4.dp))
+                                .background(SurfaceDark.copy(alpha = 0.7f))
+                                .padding(end = 6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .width(2.5.dp)
+                                    .fillMaxHeight()
+                                    .background(AccentCyan.copy(alpha = 0.4f))
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = parseInlineMarkdown(text, onLinkClick),
+                                fontSize = 13.sp,
+                                fontStyle = FontStyle.Italic,
+                                color = TextSecondary,
+                                lineHeight = 18.sp,
+                                modifier = Modifier.padding(vertical = 4.dp)
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = parseInlineMarkdown(text, onLinkClick),
+                            fontSize = 13.5.sp,
+                            fontStyle = FontStyle.Italic,
+                            color = TextSecondary,
+                            lineHeight = 19.sp
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Beautiful LaTeX / Mathematical formula block rendered with KaTeX
+ */
+@Composable
+private fun MathBlock(formula: String) {
+    val cleanFormula = remember(formula) {
+        var s = formula.trim()
+        if (s.startsWith("$$") && s.endsWith("$$") && s.length >= 4) {
+            s = s.substring(2, s.length - 2).trim()
+        } else if (s.startsWith("$") && s.endsWith("$") && s.length >= 2) {
+            s = s.substring(1, s.length - 1).trim()
+        }
+        s
+    }
+
+    val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .border(1.dp, BorderDark, RoundedCornerShape(8.dp))
+            .background(Color(0xFF0F172A))
+    ) {
+        MathWebView(
+            formula = cleanFormula,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        // Copy LaTeX button
+        IconButton(
+            onClick = {
+                clipboardManager.setText(AnnotatedString(cleanFormula))
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                Toast.makeText(context, "Skopiowano formułę LaTeX", Toast.LENGTH_SHORT).show()
+            },
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .size(32.dp)
+                .padding(4.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.ContentCopy,
+                contentDescription = "Kopiuj LaTeX",
+                tint = TextSecondary.copy(alpha = 0.5f),
+                modifier = Modifier.size(14.dp)
+            )
+        }
+    }
+}
+
+internal fun buildMathHtml(escapedFormula: String): String {
+    return """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes">
+            <link rel="stylesheet" href="katex.min.css">
+            <style>
+                * { box-sizing: border-box; }
+                html, body {
+                    margin: 0;
+                    padding: 0;
+                    background-color: transparent;
+                    color: #F8FAFC;
+                    width: 100%;
+                    overflow: hidden;
+                    -webkit-font-smoothing: antialiased;
+                }
+                #math-scroll {
+                    width: 100%;
+                    overflow-x: auto;
+                    overflow-y: hidden;
+                    text-align: center;
+                    white-space: nowrap;
+                    -webkit-overflow-scrolling: touch;
+                }
+                #math-container {
+                    display: inline-block;
+                    padding: 8px 40px 8px 16px;
+                    text-align: center;
+                }
+                .katex-display {
+                    margin: 0 !important;
+                    text-align: center;
+                }
+                .katex {
+                    font-size: 1.15em !important;
+                    color: #F1F5F9 !important;
+                }
+                .katex .mord.mathnormal {
+                    color: #F8FAFC;
+                }
+                ::-webkit-scrollbar {
+                    height: 3px;
+                }
+                ::-webkit-scrollbar-thumb {
+                    background: rgba(255, 255, 255, 0.2);
+                    border-radius: 3px;
+                }
+            </style>
+            <script src="katex.min.js"></script>
+        </head>
+        <body>
+            <div id="math-scroll">
+                <div id="math-container">
+                    <div id="math"></div>
+                </div>
+            </div>
+            <script>
+                function reportHeight() {
+                    var container = document.getElementById('math-container');
+                    var h = container ? Math.max(container.offsetHeight, container.scrollHeight) : document.body.scrollHeight;
+                    if (window.AndroidMathBridge && window.AndroidMathBridge.onHeight) {
+                        window.AndroidMathBridge.onHeight(h);
+                    }
+                }
+                function render() {
+                    try {
+                        katex.render(`$escapedFormula`, document.getElementById('math'), {
+                            displayMode: true,
+                            throwOnError: false
+                        });
+                    } catch(e) {
+                        document.getElementById('math').innerText = `$escapedFormula`;
+                    }
+                    reportHeight();
+                    setTimeout(reportHeight, 40);
+                    setTimeout(reportHeight, 150);
+                }
+                if (document.readyState === 'loading') {
+                    document.addEventListener("DOMContentLoaded", render);
+                } else {
+                    render();
+                }
+            </script>
+        </body>
+        </html>
+    """.trimIndent()
+}
+
+@Composable
+private fun MathWebView(
+    formula: String,
+    modifier: Modifier = Modifier
+) {
+    // Start with a safe default height to avoid jumpiness
+    var contentHeightDp by remember { mutableStateOf(44.dp) }
+
+    val escapedFormula = remember(formula) {
+        formula
+            .replace("\\", "\\\\")
+            .replace("`", "\\`")
+            .replace("$", "\\$")
+    }
+
+    val htmlContent = remember(escapedFormula) {
+        buildMathHtml(escapedFormula)
+    }
+
+    val context = LocalContext.current
+    val webView = remember {
+        WebView(context).apply {
+            setBackgroundColor(0)
+            settings.apply {
+                javaScriptEnabled = true
+                domStorageEnabled = true
+                allowFileAccess = true
+                builtInZoomControls = false
+                displayZoomControls = false
+                useWideViewPort = false
+                loadWithOverviewMode = false
+            }
+            webViewClient = WebViewClient()
+            var startX = 0f
+            var startY = 0f
+            setOnTouchListener { v, event ->
+                when (event.actionMasked) {
+                    android.view.MotionEvent.ACTION_DOWN -> {
+                        startX = event.x
+                        startY = event.y
+                        false
+                    }
+                    android.view.MotionEvent.ACTION_MOVE -> {
+                        val dx = kotlin.math.abs(event.x - startX)
+                        val dy = kotlin.math.abs(event.y - startY)
+                        if (dx > dy && dx > 25) {
+                            v.parent?.requestDisallowInterceptTouchEvent(true)
+                        } else {
+                            v.parent?.requestDisallowInterceptTouchEvent(false)
+                        }
+                        false
+                    }
+                    android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                        v.parent?.requestDisallowInterceptTouchEvent(false)
+                        false
+                    }
+                    else -> false
+                }
+            }
+        }
+    }
+
+    DisposableEffect(webView) {
+        val bridge = object {
+            @android.webkit.JavascriptInterface
+            fun onHeight(heightCssPx: Int) {
+                webView.post {
+                    // On WebView with meta viewport device-width, 1 CSS pixel == 1 dp.
+                    if (heightCssPx > 10) {
+                        contentHeightDp = heightCssPx.dp
+                    }
+                }
+            }
+        }
+        webView.addJavascriptInterface(bridge, "AndroidMathBridge")
+        onDispose {
+            webView.removeJavascriptInterface("AndroidMathBridge")
+        }
+    }
+
+    LaunchedEffect(htmlContent) {
+        webView.loadDataWithBaseURL("file:///android_asset/katex/", htmlContent, "text/html", "UTF-8", null)
+    }
+
+    AndroidView(
+        factory = { webView },
+        modifier = modifier.height(contentHeightDp)
+    )
+}
+
+/**
+ * Expandable HTML <details><summary> section
+ */
+@Composable
+private fun ExpandableDetailsBlock(
+    summary: String,
+    content: String,
+    onLinkClick: ((String) -> Unit)? = null
+) {
+    var isExpanded by rememberSaveable(summary) { mutableStateOf(false) }
+    val cleanSummary = remember(summary) {
+        summary.trimStart('▶', '►', '▸', '▼', '▾', '▲', '▴', '>', ' ').trim()
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .border(1.dp, BorderDark, RoundedCornerShape(8.dp))
+            .background(SurfaceDark)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { isExpanded = !isExpanded }
+                .background(SurfaceVariantDark)
+                .padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(
+                    imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = if (isExpanded) "Zwiń" else "Rozwiń",
+                    tint = AccentCyan,
+                    modifier = Modifier.size(18.dp).padding(top = 1.dp)
+                )
+                Text(
+                    text = parseInlineMarkdown(cleanSummary, onLinkClick),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextPrimary
+                )
+            }
+        }
+        AnimatedVisibility(visible = isExpanded) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp)
+            ) {
+                if (content.isNotBlank()) {
+                    MarkdownText(
+                        markdown = content,
+                        onLinkClick = onLinkClick
+                    )
+                } else {
+                    Text(
+                        text = "Brak dodatkowej zawartości.",
+                        fontSize = 12.sp,
+                        fontStyle = FontStyle.Italic,
+                        color = TextSecondary
+                    )
+                }
+            }
+        }
+    }
+}
+
+internal fun splitMarkdownTableCells(row: String): List<String> {
+    val trimmed = row.trim().let { r ->
+        var res = r
+        if (res.startsWith("|")) res = res.substring(1)
+        if (res.endsWith("|")) res = res.substring(0, res.length - 1)
+        res
+    }
+    val cells = mutableListOf<String>()
+    val current = StringBuilder()
+    var escaped = false
+    for (char in trimmed) {
+        if (escaped) {
+            current.append(char)
+            escaped = false
+        } else if (char == '\\') {
+            escaped = true
+        } else if (char == '|') {
+            cells.add(current.toString().trim())
+            current.clear()
+        } else {
+            current.append(char)
+        }
+    }
+    cells.add(current.toString().trim())
+    return cells
+}
+
+internal fun isMarkdownTableSeparatorRow(line: String): Boolean {
+    val cells = splitMarkdownTableCells(line)
+    return cells.isNotEmpty() && cells.all { Regex("""^:?-+:?$""").matches(it) }
+}
+
+/**
+ * Markdown Table with synchronized column grid, horizontal scrolling, and column alignments
+ */
+@Composable
+private fun MarkdownTable(
+    lines: List<String>,
+    onLinkClick: ((String) -> Unit)? = null
+) {
+    val nonBlankLines = lines.filter { it.isNotBlank() }
+    val sepIndex = nonBlankLines.indexOfFirst { isMarkdownTableSeparatorRow(it) }
+
+    // If no separator row exists, render lines as standard text fallback
+    if (sepIndex == -1) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            nonBlankLines.forEach { line ->
+                Text(
+                    text = parseInlineMarkdown(line, onLinkClick),
+                    fontSize = 13.sp,
+                    color = TextPrimary
+                )
+            }
+        }
+        return
+    }
+
+    val sepRow = nonBlankLines[sepIndex]
+    val alignments = splitMarkdownTableCells(sepRow).map { c ->
+        when {
+            c.startsWith(":") && c.endsWith(":") -> TextAlign.Center
+            c.endsWith(":") -> TextAlign.End
+            else -> TextAlign.Start
+        }
+    }
+
+    val headerRows = nonBlankLines.take(sepIndex).map { splitMarkdownTableCells(it) }
+    val dataRows = nonBlankLines.drop(sepIndex + 1).filterNot { isMarkdownTableSeparatorRow(it) }.map { splitMarkdownTableCells(it) }
+
+    val allRows = headerRows + dataRows
+    if (allRows.isEmpty()) return
+
+    val numCols = maxOf(
+        alignments.size,
+        allRows.maxOfOrNull { it.size } ?: 0
+    )
+    if (numCols == 0) return
+
+    val normalizedHeaders = headerRows.map { row ->
+        row + List(maxOf(0, numCols - row.size)) { "" }
+    }
+    val normalizedData = dataRows.map { row ->
+        row + List(maxOf(0, numCols - row.size)) { "" }
+    }
+
+    val textMeasurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .border(1.dp, BorderDark, RoundedCornerShape(10.dp))
+            .background(SurfaceDark)
+    ) {
+        val availableWidth = maxWidth
+
+        // Calculate synchronized column widths across all rows with high-performance candidate sampling
+        val columnWidths = remember(normalizedHeaders, normalizedData, availableWidth, density) {
+            val naturalWidths = MutableList(numCols) { 0.dp }
+            val cellHorizontalPadding = 24.dp // 12.dp each side
+            val safetyBuffer = 12.dp // Safety margin for font metrics/rendering differences
+            val minColWidth = 64.dp
+
+            fun measureCell(cellText: String, isHeader: Boolean): androidx.compose.ui.unit.Dp {
+                val annotated = parseInlineMarkdown(cellText)
+                val style = TextStyle(
+                    fontSize = 12.sp,
+                    fontWeight = if (isHeader) FontWeight.Bold else FontWeight.Normal
+                )
+                val measuredPx = textMeasurer.measure(
+                    text = annotated,
+                    style = style,
+                    maxLines = 1,
+                    softWrap = false
+                ).size.width
+                return with(density) { measuredPx.toDp() } + cellHorizontalPadding + safetyBuffer
+            }
+
+            for (colIndex in 0 until numCols) {
+                var maxW = minColWidth
+                // Measure headers for this column
+                for (headerRow in normalizedHeaders) {
+                    if (colIndex < headerRow.size) {
+                        val w = measureCell(headerRow[colIndex], true)
+                        if (w > maxW) maxW = w
+                    }
+                }
+                // Only sample the top 2 longest strings in this column to eliminate UI thread scroll jank
+                val candidateCells = normalizedData
+                    .mapNotNull { if (colIndex < it.size) it[colIndex] else null }
+                    .sortedByDescending { it.length }
+                    .take(2)
+
+                for (cellText in candidateCells) {
+                    val w = measureCell(cellText, false)
+                    if (w > maxW) maxW = w
+                }
+                naturalWidths[colIndex] = maxW
+            }
+
+            val adjustedNatural = naturalWidths.map { maxOf(it, minColWidth) }
+            val totalNatural = adjustedNatural.fold(0.dp) { acc, d -> acc + d }
+
+            // If table natural width fits within available width, expand columns proportionally to fill bubble
+            if (totalNatural < availableWidth && totalNatural.value > 0f) {
+                val extraWidth = availableWidth - totalNatural
+                adjustedNatural.map { colW ->
+                    colW + (extraWidth * (colW.value / totalNatural.value))
+                }
+            } else {
+                adjustedNatural
+            }
+        }
+
+        val scrollState = rememberScrollState()
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(
+                    state = scrollState,
+                    enabled = scrollState.maxValue > 0
+                )
+        ) {
+            // 1. Header rows
+            normalizedHeaders.forEach { rowCells ->
+                Row(
+                    modifier = Modifier
+                        .background(SurfaceVariantDark)
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    rowCells.forEachIndexed { colIndex, cellText ->
+                        val align = alignments.getOrElse(colIndex) { TextAlign.Start }
+                        val colWidth = columnWidths.getOrElse(colIndex) { 80.dp }
+                        Box(
+                            modifier = Modifier
+                                .widthIn(min = colWidth)
+                                .width(colWidth)
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                            contentAlignment = when (align) {
+                                TextAlign.Center -> Alignment.Center
+                                TextAlign.End -> Alignment.CenterEnd
+                                else -> Alignment.CenterStart
+                            }
+                        ) {
+                            Text(
+                                text = parseInlineMarkdown(cellText, onLinkClick),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AccentCyan,
+                                textAlign = align,
+                                softWrap = false
+                            )
+                        }
+                    }
+                }
+                HorizontalDivider(color = BorderDark, thickness = 1.dp)
+            }
+
+            // 2. Data rows
+            normalizedData.forEachIndexed { rowIndex, rowCells ->
+                val isAlternate = rowIndex % 2 == 1
+                Row(
+                    modifier = Modifier
+                        .background(if (isAlternate) Color(0xFF131E2E).copy(alpha = 0.5f) else Color.Transparent)
+                        .padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    rowCells.forEachIndexed { colIndex, cellText ->
+                        val align = alignments.getOrElse(colIndex) { TextAlign.Start }
+                        val colWidth = columnWidths.getOrElse(colIndex) { 80.dp }
+                        Box(
+                            modifier = Modifier
+                                .widthIn(min = colWidth)
+                                .width(colWidth)
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                            contentAlignment = when (align) {
+                                TextAlign.Center -> Alignment.Center
+                                TextAlign.End -> Alignment.CenterEnd
+                                else -> Alignment.CenterStart
+                            }
+                        ) {
+                            Text(
+                                text = parseInlineMarkdown(cellText, onLinkClick),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Normal,
+                                color = TextPrimary,
+                                textAlign = align,
+                                softWrap = false
+                            )
+                        }
+                    }
+                }
+                if (rowIndex < normalizedData.size - 1) {
+                    HorizontalDivider(color = BorderDark.copy(alpha = 0.35f), thickness = 0.5.dp)
+                }
+            }
+        }
+    }
+}
+
+val LocalMermaidFullscreenHandler = compositionLocalOf<((String) -> Unit)?> { null }
+
+@Composable
+fun MermaidFullscreenDialog(
+    code: String,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+    val haptic = LocalHapticFeedback.current
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val isTablet = configuration.screenWidthDp >= 600 || configuration.screenHeightDp >= 1000
+
+    BackHandler(onBack = onDismiss)
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.75f))
+            .pointerInput(Unit) {
+                detectTapGestures { onDismiss() }
+            }
+            .safeDrawingPadding()
+            .padding(
+                horizontal = 16.dp,
+                vertical = if (isLandscape) 12.dp else 16.dp
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            modifier = Modifier
+                .pointerInput(Unit) {
+                    detectTapGestures { }
+                }
+                .fillMaxWidth()
+                .then(
+                    if (isTablet) {
+                        Modifier
+                            .widthIn(max = if (isLandscape) 960.dp else 750.dp)
+                            .heightIn(max = if (isLandscape) 620.dp else 800.dp)
+                    } else {
+                        Modifier
+                            .widthIn(max = if (isLandscape) 960.dp else 560.dp)
+                            .fillMaxHeight()
+                    }
+                ),
+            shape = RoundedCornerShape(if (isLandscape) 14.dp else 18.dp),
+            color = Color(0xFF0F172A),
+            border = androidx.compose.foundation.BorderStroke(1.dp, AntigravityCardBorder)
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(SurfaceDark)
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AccountTree,
+                            contentDescription = null,
+                            tint = AccentCyan,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "DIAGRAM MERMAID",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            color = AccentCyan,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Fullscreen Copy button (32x32dp square)
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(SurfaceVariantDark)
+                                .border(1.dp, BorderDark, RoundedCornerShape(8.dp))
+                                .clickable {
+                                    clipboardManager.setText(AnnotatedString(code))
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    Toast.makeText(context, "Skopiowano kod Mermaid do schowka", Toast.LENGTH_SHORT).show()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ContentCopy,
+                                contentDescription = "Kopiuj kod",
+                                tint = TextSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+
+                        // Fullscreen Close button (32x32dp square)
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(SurfaceVariantDark)
+                                .border(1.dp, BorderDark, RoundedCornerShape(8.dp))
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onDismiss()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Zamknij pełny ekran",
+                                tint = TextPrimary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = BorderDark, thickness = 1.dp)
+
+                MermaidWebView(
+                    code = code,
+                    isFullscreen = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Interactive visual Mermaid diagram renderer with toggle to source code and fullscreen modal
+ */
+@Composable
+private fun MermaidDiagramCard(code: String) {
+    var showVisual by rememberSaveable { mutableStateOf(true) }
+    var isFullscreenFallback by rememberSaveable { mutableStateOf(false) }
+
+    val fullscreenHandler = LocalMermaidFullscreenHandler.current
+    val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    val cleanedCode = remember(code) { cleanMermaidCode(code) }
+
+    if (isFullscreenFallback) {
+        MermaidFullscreenDialog(
+            code = cleanedCode,
+            onDismiss = { isFullscreenFallback = false }
+        )
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(SurfaceVariantDark)
+            .border(1.dp, BorderDark, RoundedCornerShape(8.dp))
+    ) {
+        // Top Toolbar
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(SurfaceDark)
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.padding(end = 12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AccountTree,
+                    contentDescription = null,
+                    tint = AccentCyan,
+                    modifier = Modifier.size(13.dp)
+                )
+                Text(
+                    text = "MERMAID",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    color = AccentCyan
+                )
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                // Fullscreen icon button (28x28 dp)
+                if (showVisual) {
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(SurfaceVariantDark)
+                            .border(1.dp, BorderDark, RoundedCornerShape(6.dp))
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                if (fullscreenHandler != null) {
+                                    fullscreenHandler(cleanedCode)
+                                } else {
+                                    isFullscreenFallback = true
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Fullscreen,
+                            contentDescription = "Pełny ekran",
+                            tint = AccentCyan,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+
+                // Mode toggle (Kod / Diagram) - exactly 28.dp height
+                Box(
+                    modifier = Modifier
+                        .height(28.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (!showVisual) AccentCyan.copy(alpha = 0.15f) else SurfaceVariantDark)
+                        .border(1.dp, if (!showVisual) AccentCyan else BorderDark, RoundedCornerShape(6.dp))
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            showVisual = !showVisual
+                        }
+                        .padding(horizontal = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (showVisual) "Kod" else "Diagram",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (!showVisual) AccentCyan else TextSecondary
+                    )
+                }
+
+                // Copy icon button (28x28 dp, same height and style)
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(SurfaceVariantDark)
+                        .border(1.dp, BorderDark, RoundedCornerShape(6.dp))
+                        .clickable {
+                            clipboardManager.setText(AnnotatedString(cleanedCode))
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            Toast.makeText(context, "Skopiowano kod Mermaid do schowka", Toast.LENGTH_SHORT).show()
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ContentCopy,
+                        contentDescription = "Kopiuj kod",
+                        tint = TextSecondary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
+        }
+
+        if (showVisual) {
+            MermaidWebView(
+                code = cleanedCode,
+                isFullscreen = false,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(240.dp)
+            )
+        } else {
+            val codeScrollState = rememberScrollState()
+            val highlighted = remember(cleanedCode) {
+                highlightCode(cleanedCode, "mermaid")
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(
+                        state = codeScrollState,
+                        enabled = codeScrollState.maxValue > 0
+                    )
+                    .padding(12.dp)
+            ) {
+                Text(
+                    text = highlighted,
+                    modifier = Modifier.wrapContentWidth(align = Alignment.Start, unbounded = true),
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    lineHeight = 17.sp,
+                    softWrap = false
+                )
+            }
+        }
+    }
+}
+
+internal fun cleanMermaidCode(code: String): String {
+    var c = code.trim().replace("\r\n", "\n").replace("\r", "\n")
+    if (c.startsWith("```mermaid", ignoreCase = true)) {
+        c = c.substring(10).trim()
+    } else if (c.startsWith("```")) {
+        c = c.substring(3).trim()
+    }
+    if (c.endsWith("```")) {
+        c = c.substring(0, c.length - 3).trim()
+    }
+    return c
+}
+
+internal fun escapeMermaidHtml(code: String): String {
+    return code.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace("\"", "&quot;")
+        .replace("'", "&#39;")
+}
+
+internal object MermaidScriptHolder {
+    @Volatile
+    private var cachedScript: String? = null
+
+    fun getScript(context: Context): String {
+        cachedScript?.let { return it }
+        return synchronized(this) {
+            cachedScript ?: try {
+                context.assets.open("mermaid/mermaid.min.js").bufferedReader(Charsets.UTF_8).use { it.readText() }
+                    .also { cachedScript = it }
+            } catch (e: Exception) {
+                android.util.Log.e("MermaidJS", "Nie udało się załadować mermaid.min.js z assets", e)
+                ""
+            }
+        }
+    }
+}
+
+internal fun buildMermaidHtml(
+    code: String,
+    isFullscreen: Boolean = false
+): String {
+    val cleanedCode = cleanMermaidCode(code)
+    val escapedCode = escapeMermaidHtml(cleanedCode)
+    val scriptTag = """
+        <script src="https://appassets.androidplatform.net/assets/mermaid/mermaid.min.js"></script>
+        <script>
+            console.log('[JS_INIT] Script tag running. typeof mermaid=' + (typeof mermaid));
+            if (typeof mermaid === 'undefined') {
+                console.warn('[JS_INIT] mermaid is undefined! Injecting fallback...');
+                var s = document.createElement('script');
+                s.src = 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js';
+                s.onload = function() { console.log('[JS_INIT] CDN script loaded!'); };
+                s.onerror = function(e) { console.error('[JS_INIT] CDN script error:', e); };
+                document.head.appendChild(s);
+            } else {
+                console.log('[JS_INIT] mermaid defined from assets!');
+            }
+        </script>
+    """.trimIndent()
+
+    return """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+            <style>
+                * { box-sizing: border-box; }
+                html, body {
+                    margin: 0;
+                    padding: 0;
+                    width: 100%;
+                    height: 100%;
+                    background-color: #0F172A;
+                    overflow: hidden;
+                    touch-action: none;
+                    user-select: none;
+                    -webkit-user-select: none;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                }
+                #container {
+                    width: 100%;
+                    height: 100%;
+                    position: relative;
+                    overflow: hidden;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    touch-action: none;
+                }
+                #transform-box {
+                    transform-origin: center center;
+                    will-change: transform;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    width: auto;
+                    height: auto;
+                }
+                #transform-box svg {
+                    max-width: none !important;
+                    height: auto;
+                }
+                .controls {
+                    position: absolute;
+                    bottom: 16px;
+                    right: 16px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 8px;
+                    z-index: 100;
+                }
+                .btn {
+                    width: 38px;
+                    height: 38px;
+                    border-radius: 10px;
+                    background: #1E293B;
+                    border: 1px solid #475569;
+                    color: #F8FAFC;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 18px;
+                    font-weight: bold;
+                    cursor: pointer;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.6);
+                    user-select: none;
+                    -webkit-tap-highlight-color: transparent;
+                }
+                .btn:active {
+                    background: #334155;
+                    border-color: #00D2FF;
+                    color: #00D2FF;
+                    transform: scale(0.94);
+                }
+                #loading {
+                    position: absolute;
+                    color: #94A3B8;
+                    font-size: 12px;
+                    font-family: sans-serif;
+                    text-align: center;
+                }
+                #error {
+                    display: none;
+                    position: absolute;
+                    top: 12px;
+                    left: 12px;
+                    right: 12px;
+                    bottom: 12px;
+                    overflow-y: auto;
+                    color: #F87171;
+                    font-size: 12px;
+                    font-family: monospace;
+                    padding: 12px;
+                    background: #1E293B;
+                    border-radius: 8px;
+                    border: 1px solid #7F1D1D;
+                    white-space: pre-wrap;
+                    word-break: break-word;
+                    z-index: 200;
+                }
+            </style>
+            $scriptTag
+            <script>
+                let currentScale = 1;
+                let posX = 0;
+                let posY = 0;
+                let startX = 0;
+                let startY = 0;
+                let isDragging = false;
+                let initialDist = null;
+                let baseScale = 1;
+                let initialFitScale = 1;
+                let naturalWidth = 0;
+                let naturalHeight = 0;
+
+                function setBoxTransition(enabled) {
+                    const el = document.getElementById('transform-box');
+                    if (el) {
+                        el.style.transition = enabled ? 'transform 0.18s ease-out' : 'none';
+                    }
+                }
+
+                function updateTransform() {
+                    const el = document.getElementById('transform-box');
+                    if (el) {
+                        el.style.transform = 'translate(' + posX + 'px, ' + posY + 'px) scale(' + currentScale + ')';
+                    }
+                }
+
+                window.zoomIn = function() {
+                    setBoxTransition(true);
+                    currentScale = Math.min(currentScale * 1.35, 6.0);
+                    updateTransform();
+                };
+                window.zoomOut = function() {
+                    setBoxTransition(true);
+                    currentScale = Math.max(currentScale / 1.35, 0.2);
+                    updateTransform();
+                };
+                window.resetZoom = function() {
+                    setBoxTransition(true);
+                    currentScale = initialFitScale;
+                    posX = 0;
+                    posY = 0;
+                    updateTransform();
+                };
+
+                function setupPanZoom() {
+                    const container = document.getElementById('container');
+                    if (!container || container._panZoomInitialized) return;
+                    container._panZoomInitialized = true;
+
+                    container.addEventListener('touchstart', (e) => {
+                        if (e.target.closest('.controls')) return;
+                        setBoxTransition(false);
+                        if (e.touches.length === 1) {
+                            isDragging = true;
+                            startX = e.touches[0].clientX - posX;
+                            startY = e.touches[0].clientY - posY;
+                        } else if (e.touches.length === 2) {
+                            isDragging = false;
+                            initialDist = Math.hypot(
+                                e.touches[0].clientX - e.touches[1].clientX,
+                                e.touches[0].clientY - e.touches[1].clientY
+                            );
+                            baseScale = currentScale;
+                        }
+                    }, { passive: false });
+
+                    container.addEventListener('touchmove', (e) => {
+                        if (e.target.closest('.controls')) return;
+                        if (e.cancelable) e.preventDefault();
+                        if (isDragging && e.touches.length === 1) {
+                            posX = e.touches[0].clientX - startX;
+                            posY = e.touches[0].clientY - startY;
+                            updateTransform();
+                        } else if (e.touches.length === 2 && initialDist) {
+                            const dist = Math.hypot(
+                                e.touches[0].clientX - e.touches[1].clientX,
+                                e.touches[0].clientY - e.touches[1].clientY
+                            );
+                            currentScale = Math.min(Math.max(0.2, baseScale * (dist / initialDist)), 6.0);
+                            updateTransform();
+                        }
+                    }, { passive: false });
+
+                    const endHandler = () => {
+                        isDragging = false;
+                        initialDist = null;
+                    };
+                    container.addEventListener('touchend', endHandler);
+                    container.addEventListener('touchcancel', endHandler);
+                }
+
+                function getNaturalDimensions(svg) {
+                    if (naturalWidth > 0 && naturalHeight > 0) {
+                        return { width: naturalWidth, height: naturalHeight };
+                    }
+                    if (svg.viewBox && svg.viewBox.baseVal && svg.viewBox.baseVal.width > 0) {
+                        naturalWidth = svg.viewBox.baseVal.width;
+                        naturalHeight = svg.viewBox.baseVal.height;
+                        return { width: naturalWidth, height: naturalHeight };
+                    }
+                    try {
+                        const bbox = svg.getBBox();
+                        if (bbox.width > 0 && bbox.height > 0) {
+                            naturalWidth = bbox.width;
+                            naturalHeight = bbox.height;
+                            return { width: naturalWidth, height: naturalHeight };
+                        }
+                    } catch (_) {}
+                    const rect = svg.getBoundingClientRect();
+                    if (rect.width > 0 && rect.height > 0) {
+                        naturalWidth = rect.width / (currentScale || 1);
+                        naturalHeight = rect.height / (currentScale || 1);
+                        return { width: naturalWidth, height: naturalHeight };
+                    }
+                    return null;
+                }
+
+                let renderAttempts = 0;
+                async function renderDiagram() {
+                    console.log('[JS_RENDER] renderDiagram started. Attempts=' + renderAttempts + ', typeof mermaid=' + (typeof mermaid));
+                    try {
+                        if (typeof mermaid === 'undefined') {
+                            renderAttempts++;
+                            if (renderAttempts < 120) {
+                                if (renderAttempts % 10 === 0) console.log('[JS_RENDER] Waiting for mermaid, attempt ' + renderAttempts);
+                                setTimeout(renderDiagram, 50);
+                                return;
+                            }
+                            throw new Error('Timeout: mermaid.min.js nie załadował się po 6s.');
+                        }
+                        const loader = document.getElementById('loading');
+                        if (loader) loader.style.display = 'none';
+
+                        mermaid.initialize({
+                            startOnLoad: false,
+                            theme: 'dark',
+                            securityLevel: 'loose',
+                            themeVariables: {
+                                darkMode: true,
+                                background: '#0F172A',
+                                primaryColor: '#6366F1',
+                                primaryTextColor: '#F8FAFC',
+                                primaryBorderColor: '#818CF8',
+                                lineColor: '#38BDF8',
+                                secondaryColor: '#1E293B',
+                                tertiaryColor: '#0F172A',
+                                mainBkg: '#1E293B',
+                                nodeBorder: '#818CF8',
+                                clusterBkg: '#1E293B',
+                                fontSize: '13px'
+                            }
+                        });
+                        console.log('[JS_RENDER] mermaid.initialize OK');
+
+                        const codeEl = document.getElementById('mermaid-raw-code');
+                        const rawCode = (codeEl ? codeEl.textContent : '').trim();
+                        if (!rawCode) throw new Error('Pusty kod diagramu Mermaid');
+                        console.log('[JS_RENDER] rawCode len=' + rawCode.length + ', starting mermaid.render...');
+
+                        const renderId = 'mermaid_chart_' + Math.floor(Math.random() * 100000);
+                        const renderResult = await mermaid.render(renderId, rawCode);
+                        console.log('[JS_RENDER] mermaid.render OK! SVG len=' + renderResult.svg.length);
+
+                        const target = document.getElementById('transform-box');
+                        if (target) {
+                            target.innerHTML = renderResult.svg;
+                        }
+
+                        setupPanZoom();
+
+                        function autoFit() {
+                            const svg = document.querySelector('#transform-box svg');
+                            if (!svg) return;
+                            const dims = getNaturalDimensions(svg);
+                            if (!dims) return;
+                            const cWidth = window.innerWidth;
+                            const cHeight = window.innerHeight;
+                            console.log('[JS_AUTOFIT] natural=' + dims.width + 'x' + dims.height + ', win=' + cWidth + 'x' + cHeight);
+                            if (dims.width > 0 && dims.height > 0 && cWidth > 0 && cHeight > 0) {
+                                const scaleX = (cWidth - 28) / dims.width;
+                                const scaleY = (cHeight - 28) / dims.height;
+                                const fitScale = Math.min(scaleX, scaleY, 1.0);
+                                initialFitScale = Math.max(0.2, fitScale);
+                                currentScale = initialFitScale;
+                                posX = 0;
+                                posY = 0;
+                                setBoxTransition(false);
+                                updateTransform();
+                            }
+                        }
+                        autoFit();
+                        setTimeout(autoFit, 60);
+                        setTimeout(autoFit, 180);
+
+                        if (window.AndroidMermaidBridge && window.AndroidMermaidBridge.onRendered) {
+                            window.AndroidMermaidBridge.onRendered();
+                        }
+                    } catch (err) {
+                        console.error('[JS_RENDER_ERR] ' + (err.stack || err.message || err));
+                        const loader = document.getElementById('loading');
+                        if (loader) loader.style.display = 'none';
+                        const errDiv = document.getElementById('error');
+                        if (errDiv) {
+                            errDiv.style.display = 'block';
+                            errDiv.innerText = 'Błąd diagramu Mermaid:\n' + (err.message || err);
+                        }
+                        if (window.AndroidMermaidBridge) {
+                            if (window.AndroidMermaidBridge.onError) {
+                                window.AndroidMermaidBridge.onError(err.message || String(err));
+                            }
+                            if (window.AndroidMermaidBridge.onRendered) {
+                                window.AndroidMermaidBridge.onRendered();
+                            }
+                        }
+                    }
+                }
+
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', renderDiagram);
+                } else {
+                    renderDiagram();
+                }
+            </script>
+        </head>
+        <body>
+            <div id="container">
+                <div id="loading">Renderowanie diagramu…</div>
+                <div id="error"></div>
+                <div id="transform-box"></div>
+                <div class="controls">
+                    <div class="btn" onclick="zoomIn()" title="Przybliż">+</div>
+                    <div class="btn" onclick="zoomOut()" title="Oddal">−</div>
+                    <div class="btn" onclick="resetZoom()" title="Resetuj">⟲</div>
+                </div>
+            </div>
+            <div id="mermaid-raw-code" style="display:none;">$escapedCode</div>
+        </body>
+        </html>
+    """.trimIndent()
+}
+
+@Composable
+private fun MermaidWebView(
+    code: String,
+    isFullscreen: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+
+    fun addDiag(tag: String, msg: String) {
+        val time = java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US).format(java.util.Date())
+        android.util.Log.d("MermaidDiag", "$time [$tag] $msg")
+    }
+
+    val htmlContent = remember(code, isFullscreen) {
+        buildMermaidHtml(code, isFullscreen)
+    }
+
+    var isLoading by remember { mutableStateOf(true) }
+    var renderError by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        addDiag("DEVICE", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} | Android ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
+        try {
+            val assetStream = context.assets.open("mermaid/mermaid.min.js")
+            val size = assetStream.available()
+            val buf = ByteArray(minOf(size, 48))
+            val readCount = assetStream.read(buf)
+            assetStream.close()
+            val preview = String(buf, 0, readCount).replace("\n", " ").trim()
+            addDiag("ASSET_OK", "mermaid.min.js readable, available=$size B, preview='$preview'")
+        } catch (e: Exception) {
+            addDiag("ASSET_ERR", "context.assets.open failed: ${e.javaClass.simpleName}: ${e.message}")
+        }
+    }
+
+    val assetLoader = remember(context) {
+        WebViewAssetLoader.Builder()
+            .setDomain("appassets.androidplatform.net")
+            .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(context))
+            .build()
+    }
+
+    val webView = remember {
+        WebView(context).apply {
+            setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
+            layoutParams = android.view.ViewGroup.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            clipToOutline = true
+            setBackgroundColor(0)
+            settings.apply {
+                javaScriptEnabled = true
+                domStorageEnabled = true
+                allowFileAccess = true
+                allowContentAccess = true
+                setSupportZoom(false)
+                builtInZoomControls = false
+                displayZoomControls = false
+                useWideViewPort = false
+                loadWithOverviewMode = false
+            }
+            webChromeClient = object : WebChromeClient() {
+                override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+                    val msg = "[${consoleMessage?.messageLevel()}] ${consoleMessage?.message()} (${consoleMessage?.sourceId()}:${consoleMessage?.lineNumber()})"
+                    addDiag("JS_CONSOLE", msg)
+                    android.util.Log.d("MermaidJS", "JS: $msg")
+                    return true
+                }
+            }
+            setOnTouchListener { v, event ->
+                when (event.actionMasked) {
+                    android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_MOVE -> {
+                        v.parent?.requestDisallowInterceptTouchEvent(true)
+                    }
+                    android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                        v.parent?.requestDisallowInterceptTouchEvent(false)
+                    }
+                }
+                false
+            }
+            webViewClient = object : WebViewClient() {
+                override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                    super.onPageStarted(view, url, favicon)
+                    addDiag("PAGE_START", "url=$url")
+                }
+
+                override fun shouldInterceptRequest(
+                    view: WebView?,
+                    request: WebResourceRequest?
+                ): WebResourceResponse? {
+                    val uri = request?.url ?: return null
+                    val intercepted = assetLoader.shouldInterceptRequest(uri)
+                    if (intercepted != null) {
+                        addDiag("INTERCEPT_ASSET", "AssetLoader handled: $uri")
+                        return intercepted
+                    }
+                    if (uri.path?.endsWith("mermaid.min.js") == true || uri.lastPathSegment == "mermaid.min.js") {
+                        try {
+                            val stream = context.assets.open("mermaid/mermaid.min.js")
+                            val headers = mapOf(
+                                "Access-Control-Allow-Origin" to "*",
+                                "Content-Type" to "application/javascript; charset=utf-8"
+                            )
+                            addDiag("INTERCEPT_STREAM", "Direct stream fallback for: $uri")
+                            return WebResourceResponse("application/javascript", "UTF-8", 200, "OK", headers, stream)
+                        } catch (e: Exception) {
+                            addDiag("INTERCEPT_ERROR", "Fallback failed for $uri: ${e.message}")
+                            android.util.Log.e("MermaidJS", "Failed direct asset load fallback", e)
+                        }
+                    }
+                    addDiag("PASS_THROUGH", "Passthrough: $uri")
+                    return super.shouldInterceptRequest(view, request)
+                }
+
+                override fun onReceivedError(
+                    view: WebView?,
+                    request: WebResourceRequest?,
+                    error: WebResourceError?
+                ) {
+                    super.onReceivedError(view, request, error)
+                    addDiag("WEB_ERROR", "code=${error?.errorCode}, desc=${error?.description}, url=${request?.url}")
+                    android.util.Log.e("MermaidJS", "WebView resource error: ${error?.description} code=${error?.errorCode} for ${request?.url}")
+                }
+
+                override fun onReceivedHttpError(
+                    view: WebView?,
+                    request: WebResourceRequest?,
+                    errorResponse: WebResourceResponse?
+                ) {
+                    super.onReceivedHttpError(view, request, errorResponse)
+                    addDiag("HTTP_ERROR", "status=${errorResponse?.statusCode}, reason=${errorResponse?.reasonPhrase}, url=${request?.url}")
+                }
+
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    super.onPageFinished(view, url)
+                    addDiag("PAGE_FINISH", "url=$url, size=${view?.width}x${view?.height}, layer=${view?.layerType}")
+                    view?.evaluateJavascript(
+                        "(() => { return 'typeof mermaid=' + (typeof mermaid) + ' | readyState=' + document.readyState + ' | bodyLen=' + (document.body ? document.body.innerHTML.length : -1); })()"
+                    ) { result ->
+                        addDiag("DOM_PROBE", "JS state: $result")
+                    }
+                }
+            }
+        }
+    }
+
+    DisposableEffect(webView) {
+        val bridge = object {
+            @android.webkit.JavascriptInterface
+            fun onRendered() {
+                addDiag("BRIDGE", "onRendered called from JS!")
+                webView.post { isLoading = false }
+            }
+
+            @android.webkit.JavascriptInterface
+            fun onError(errorMsg: String) {
+                addDiag("BRIDGE_ERROR", errorMsg)
+                webView.post {
+                    isLoading = false
+                    renderError = errorMsg
+                }
+            }
+        }
+        webView.addJavascriptInterface(bridge, "AndroidMermaidBridge")
+        onDispose {
+            webView.removeJavascriptInterface("AndroidMermaidBridge")
+        }
+    }
+
+    LaunchedEffect(htmlContent) {
+        isLoading = true
+        renderError = null
+        addDiag("LOAD_HTML", "Loading HTML (length=${htmlContent.length})")
+        webView.loadDataWithBaseURL(
+            "https://appassets.androidplatform.net/assets/",
+            htmlContent,
+            "text/html",
+            "UTF-8",
+            null
+        )
+    }
+
+    LaunchedEffect(isLoading) {
+        if (isLoading) {
+            kotlinx.coroutines.delay(8000L)
+            isLoading = false
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .background(Color(0xFF0F172A)),
+        contentAlignment = Alignment.Center
+    ) {
+        AndroidView(
+            factory = { webView },
+            modifier = Modifier.fillMaxSize()
+        )
+
+        if (isLoading) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFF0F172A))
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(28.dp),
+                    color = AccentCyan,
+                    strokeWidth = 2.5.dp
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AccountTree,
+                        contentDescription = null,
+                        tint = AccentCyan.copy(alpha = 0.8f),
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = "Generowanie wizualizacji Mermaid...",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = TextSecondary
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Code Block with copy button and language identifier
+ */
+@Composable
+private fun CodeBlock(code: String, language: String? = null) {
+    val scrollState = rememberScrollState()
+    val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+
+    val highlighted = remember(code, language) {
+        highlightCode(code, language)
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(SurfaceVariantDark)
+            .border(1.dp, BorderDark, RoundedCornerShape(8.dp))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(SurfaceDark)
+                .padding(horizontal = 10.dp, vertical = 5.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val effectiveLang = language?.lowercase()?.trim() ?: ""
+            val (langIcon, langColor) = remember(effectiveLang) {
+                if (effectiveLang.isEmpty()) {
+                    Icons.Default.Code to AccentCyan
+                } else {
+                    val fakeName = when (effectiveLang) {
+                        "javascript" -> "file.js"
+                        "typescript" -> "file.ts"
+                        "python" -> "file.py"
+                        "kotlin" -> "file.kt"
+                        "rust" -> "file.rs"
+                        "bash", "shell", "zsh" -> "file.sh"
+                        "c++" -> "file.cpp"
+                        "c#" -> "file.cs"
+                        else -> "file.$effectiveLang"
+                    }
+                    getFileIcon(fakeName) to getFileIconColor(fakeName)
+                }
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Icon(
+                    imageVector = langIcon,
+                    contentDescription = null,
+                    tint = langColor,
+                    modifier = Modifier.size(13.dp)
+                )
+                Text(
+                    text = (language?.ifBlank { null } ?: "KOD").uppercase(),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    color = langColor
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .clickable {
+                        clipboardManager.setText(AnnotatedString(code))
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        Toast.makeText(context, "Skopiowano kod do schowka", Toast.LENGTH_SHORT).show()
+                    }
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ContentCopy,
+                    contentDescription = "Kopiuj kod",
+                    tint = TextSecondary,
+                    modifier = Modifier.size(12.dp)
+                )
+                Text(
+                    text = "Kopiuj",
+                    fontSize = 11.sp,
+                    color = TextSecondary,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(
+                    state = scrollState,
+                    enabled = scrollState.maxValue > 0
+                )
+                .padding(10.dp)
+        ) {
+            Text(
+                text = highlighted,
+                modifier = Modifier.wrapContentWidth(align = Alignment.Start, unbounded = true),
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
+                lineHeight = 17.sp,
+                softWrap = false
+            )
+        }
+    }
+}
+
+/**
+ * Parser for inline Markdown elements:
+ * - Markdown links: [label](target)
+ * - Bare URLs: http://, https://, file://
+ * - Bold + Italic: ***text*** and ___text___
+ * - Bold: **text** and __text__
+ * - Italic: *text* and _text_
+ * - Strikethrough: ~~text~~
+ * - Inline Code: `code`, ``code``, ```code```
+ * - Inline Math: $formula$
+ * - HTML tags: <kbd>key</kbd>, <sub>sub</sub>, <sup>sup</sup>, <br>
+ */
+internal fun parseInlineMarkdown(
+    text: String,
+    onLinkClick: ((String) -> Unit)? = null
+): AnnotatedString {
+    return buildAnnotatedString {
+        var i = 0
+        val len = text.length
+
+        while (i < len) {
+            // 1. Markdown Link: [label](target)
+            if (text[i] == '[') {
+                var bracketDepth = 1
+                var closeBracket = -1
+                var k = i + 1
+                while (k < len) {
+                    if (text[k] == '\\' && k + 1 < len) {
+                        k += 2
+                        continue
+                    }
+                    if (text[k] == '[') {
+                        bracketDepth++
+                    } else if (text[k] == ']') {
+                        bracketDepth--
+                        if (bracketDepth == 0) {
+                            closeBracket = k
+                            break
+                        }
+                    }
+                    k++
+                }
+
+                if (closeBracket != -1 && closeBracket + 1 < len && text[closeBracket + 1] == '(') {
+                    var parenDepth = 1
+                    var closeParen = -1
+                    for (p in (closeBracket + 2) until len) {
+                        if (text[p] == '\\' && p + 1 < len) {
+                            continue
+                        }
+                        if (text[p] == '(') {
+                            parenDepth++
+                        } else if (text[p] == ')') {
+                            parenDepth--
+                            if (parenDepth == 0) {
+                                closeParen = p
+                                break
+                            }
+                        }
+                    }
+
+                    if (closeParen != -1) {
+                        val rawLabel = text.substring(i + 1, closeBracket)
+                        val target = text.substring(closeBracket + 2, closeParen).trim()
+                        val parsedLabel = parseInlineMarkdown(rawLabel, onLinkClick = null)
+
+                        if (onLinkClick != null && target.isNotEmpty()) {
+                            val linkAnnotation = LinkAnnotation.Clickable(
+                                tag = target,
+                                styles = TextLinkStyles(
+                                    style = SpanStyle(
+                                        color = AccentCyan,
+                                        fontWeight = FontWeight.SemiBold,
+                                        textDecoration = TextDecoration.Underline
+                                    )
+                                ),
+                                linkInteractionListener = { _ ->
+                                    onLinkClick(target)
+                                }
+                            )
+                            pushLink(linkAnnotation)
+                            append(parsedLabel)
+                            pop()
+                        } else {
+                            withStyle(
+                                SpanStyle(
+                                    color = AccentCyan,
+                                    fontWeight = FontWeight.SemiBold,
+                                    textDecoration = TextDecoration.Underline
+                                )
+                            ) {
+                                append(parsedLabel)
+                            }
+                        }
+                        i = closeParen + 1
+                        continue
+                    }
+                }
+            }
+
+            // 2. Bare URL auto-link: http://, https://, or file://
+            if (text.startsWith("http://", i, ignoreCase = true) ||
+                text.startsWith("https://", i, ignoreCase = true) ||
+                text.startsWith("file://", i, ignoreCase = true)) {
+                var end = i
+                while (end < len && !text[end].isWhitespace() && text[end] != ')' && text[end] != ']' && text[end] != '>' && text[end] != '"') {
+                    end++
+                }
+                while (end > i && (text[end - 1] == '.' || text[end - 1] == ',' || text[end - 1] == ';' || text[end - 1] == ':' || text[end - 1] == '?')) {
+                    end--
+                }
+                val url = text.substring(i, end)
+                if (onLinkClick != null) {
+                    val linkAnnotation = LinkAnnotation.Clickable(
+                        tag = url,
+                        styles = TextLinkStyles(
+                            style = SpanStyle(
+                                color = AccentCyan,
+                                textDecoration = TextDecoration.Underline
+                            )
+                        ),
+                        linkInteractionListener = { _ -> onLinkClick(url) }
+                    )
+                    pushLink(linkAnnotation)
+                    append(url)
+                    pop()
+                } else {
+                    withStyle(SpanStyle(color = AccentCyan, textDecoration = TextDecoration.Underline)) {
+                        append(url)
+                    }
+                }
+                i = end
+                continue
+            }
+
+            // 3. Bold + Italic: ***text*** or ___text___
+            if (i + 2 < len && (text.substring(i, i + 3) == "***" || text.substring(i, i + 3) == "___")) {
+                val delim = text.substring(i, i + 3)
+                val end = text.indexOf(delim, i + 3)
+                if (end != -1) {
+                    val inner = text.substring(i + 3, end)
+                    withStyle(
+                        SpanStyle(
+                            fontWeight = FontWeight.Bold,
+                            fontStyle = FontStyle.Italic
+                        )
+                    ) {
+                        append(parseInlineMarkdown(inner, onLinkClick))
+                    }
+                    i = end + 3
+                    continue
+                }
+            }
+
+            // 4. Bold: **text** or __text__
+            if (i + 1 < len && (text.substring(i, i + 2) == "**" || text.substring(i, i + 2) == "__")) {
+                val delim = text.substring(i, i + 2)
+                val end = text.indexOf(delim, i + 2)
+                if (end != -1) {
+                    val inner = text.substring(i + 2, end)
+                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
+                        append(parseInlineMarkdown(inner, onLinkClick))
+                    }
+                    i = end + 2
+                    continue
+                }
+            }
+
+            // 5. Strikethrough: ~~text~~
+            if (i + 1 < len && text[i] == '~' && text[i + 1] == '~') {
+                val end = text.indexOf("~~", i + 2)
+                if (end != -1) {
+                    val inner = text.substring(i + 2, end)
+                    withStyle(
+                        SpanStyle(
+                            textDecoration = TextDecoration.LineThrough,
+                            color = TextMuted
+                        )
+                    ) {
+                        append(parseInlineMarkdown(inner, onLinkClick))
+                    }
+                    i = end + 2
+                    continue
+                }
+            }
+
+            // 6. Inline Code (`code`, ``code``, or ```code```)
+            if (text[i] == '`') {
+                var tickCount = 0
+                while (i + tickCount < len && text[i + tickCount] == '`') {
+                    tickCount++
+                }
+                val delimiter = "`".repeat(tickCount)
+                val end = text.indexOf(delimiter, i + tickCount)
+                if (end != -1) {
+                    val codeContent = text.substring(i + tickCount, end)
+                    withStyle(
+                        SpanStyle(
+                            fontFamily = FontFamily.Monospace,
+                            background = SurfaceVariantDark,
+                            color = AccentCyan
+                        )
+                    ) {
+                        append(codeContent)
+                    }
+                    i = end + tickCount
+                    continue
+                }
+            }
+
+            // 7. Inline Math ($formula$)
+            if (text[i] == '$' && i + 1 < len && text[i + 1] != ' ' && text[i + 1] != '$') {
+                val end = text.indexOf('$', i + 1)
+                if (end != -1 && text[end - 1] != ' ' && (end + 1 == len || text[end + 1] != '$')) {
+                    val mathExpr = text.substring(i + 1, end)
+                    val pretty = prettifyMath(mathExpr)
+                    withStyle(
+                        SpanStyle(
+                            fontFamily = FontFamily.Serif,
+                            fontStyle = FontStyle.Italic,
+                            fontWeight = FontWeight.Normal,
+                            color = TextPrimary
+                        )
+                    ) {
+                        append(pretty)
+                    }
+                    i = end + 1
+                    continue
+                }
+            }
+
+            // 8. HTML Tags: <code>, <kbd>, <sub>, <sup>, <br>
+            if (text.startsWith("<code>", i, ignoreCase = true)) {
+                val closeTag = text.indexOf("</code>", i + 6, ignoreCase = true)
+                if (closeTag != -1) {
+                    val codeContent = text.substring(i + 6, closeTag)
+                    withStyle(
+                        SpanStyle(
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 12.sp,
+                            background = SurfaceVariantDark,
+                            color = AccentCyan
+                        )
+                    ) {
+                        append(" $codeContent ")
+                    }
+                    i = closeTag + 7
+                    continue
+                }
+            }
+
+            if (text.startsWith("<kbd>", i, ignoreCase = true)) {
+                val closeTag = text.indexOf("</kbd>", i + 5, ignoreCase = true)
+                if (closeTag != -1) {
+                    val keyText = text.substring(i + 5, closeTag)
+                    withStyle(
+                        SpanStyle(
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 11.sp,
+                            background = SurfaceElevated,
+                            color = AccentCyan
+                        )
+                    ) {
+                        append(" $keyText ")
+                    }
+                    i = closeTag + 6
+                    continue
+                }
+            }
+
+            if (text.startsWith("<sub>", i, ignoreCase = true)) {
+                val closeTag = text.indexOf("</sub>", i + 5, ignoreCase = true)
+                if (closeTag != -1) {
+                    val subText = text.substring(i + 5, closeTag)
+                    val unicodeSub = toSubscript(subText)
+                    if (!unicodeSub.startsWith("_")) {
+                        append(unicodeSub)
+                    } else {
+                        withStyle(
+                            SpanStyle(
+                                baselineShift = BaselineShift.Subscript,
+                                fontSize = 10.sp
+                            )
+                        ) {
+                            append(subText)
+                        }
+                    }
+                    i = closeTag + 6
+                    continue
+                }
+            }
+
+            if (text.startsWith("<sup>", i, ignoreCase = true)) {
+                val closeTag = text.indexOf("</sup>", i + 5, ignoreCase = true)
+                if (closeTag != -1) {
+                    val supText = text.substring(i + 5, closeTag)
+                    val unicodeSup = toSuperscript(supText)
+                    if (!unicodeSup.startsWith("^")) {
+                        append(unicodeSup)
+                    } else {
+                        withStyle(
+                            SpanStyle(
+                                baselineShift = BaselineShift.Superscript,
+                                fontSize = 10.sp
+                            )
+                        ) {
+                            append(supText)
+                        }
+                    }
+                    i = closeTag + 6
+                    continue
+                }
+            }
+
+            if (text.startsWith("<br>", i, ignoreCase = true)) {
+                append("\n")
+                i += 4
+                continue
+            }
+            if (text.startsWith("<br/>", i, ignoreCase = true)) {
+                append("\n")
+                i += 5
+                continue
+            }
+
+            // 9. Italic (*text* or _text_)
+            if (text[i] == '*' || text[i] == '_') {
+                val delim = text[i]
+                val isIntraWord = delim == '_' && i > 0 && text[i - 1].isLetterOrDigit()
+                if (!isIntraWord) {
+                    val end = text.indexOf(delim, i + 1)
+                    if (end != -1 && end > i + 1 && (delim != '_' || end + 1 == len || !text[end + 1].isLetterOrDigit())) {
+                        val inner = text.substring(i + 1, end)
+                        withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
+                            append(parseInlineMarkdown(inner, onLinkClick))
+                        }
+                        i = end + 1
+                        continue
+                    }
+                }
+            }
+
+            append(text[i])
+            i++
+        }
+    }
+}
+
+/**
+ * Lightweight LaTeX / math beautifier translating common TeX macros and symbols into Unicode representations.
+ */
+private val SUPERSCRIPT_MAP = mapOf(
+    '0' to '⁰', '1' to '¹', '2' to '²', '3' to '³', '4' to '⁴',
+    '5' to '⁵', '6' to '⁶', '7' to '⁷', '8' to '⁸', '9' to '⁹',
+    '+' to '⁺', '-' to '⁻', '=' to '⁼', '(' to '⁽', ')' to '⁾',
+    'a' to 'ᵃ', 'b' to 'ᵇ', 'c' to 'ᶜ', 'd' to 'ᵈ', 'e' to 'ᵉ',
+    'f' to 'ᶠ', 'g' to 'ᵍ', 'h' to 'ʰ', 'i' to 'ⁱ', 'j' to 'ʲ',
+    'k' to 'ᵏ', 'l' to 'ˡ', 'm' to 'ᵐ', 'n' to 'ⁿ', 'o' to 'ᵒ',
+    'p' to 'ᵖ', 'r' to 'ʳ', 's' to 'ˢ', 't' to 'ᵗ', 'u' to 'ᵘ',
+    'v' to 'ᵛ', 'w' to 'ʷ', 'x' to 'ˣ', 'y' to 'ʸ', 'z' to 'ᶻ',
+    'A' to 'ᴬ', 'B' to 'ᴮ', 'D' to 'ᴰ', 'E' to 'ᴱ', 'G' to 'ᴳ',
+    'H' to 'ᴴ', 'I' to 'ᴵ', 'J' to 'ᴶ', 'K' to 'ᴷ', 'L' to 'ᴸ',
+    'M' to 'ᴹ', 'N' to 'ᴺ', 'O' to 'ᴼ', 'P' to 'ᴾ', 'R' to 'ᴿ',
+    'T' to 'ᵀ', 'U' to 'ᵁ', 'W' to 'ᵂ',
+    '⁰' to '⁰', '¹' to '¹', '²' to '²', '³' to '³', '⁴' to '⁴',
+    '⁵' to '⁵', '⁶' to '⁶', '⁷' to '⁷', '⁸' to '⁸', '⁹' to '⁹'
+)
+
+private val SUBSCRIPT_MAP = mapOf(
+    '0' to '₀', '1' to '₁', '2' to '₂', '3' to '₃', '4' to '₄',
+    '5' to '₅', '6' to '₆', '7' to '₇', '8' to '₈', '9' to '₉',
+    '+' to '₊', '-' to '₋', '=' to '₌', '(' to '₍', ')' to '₎',
+    'a' to 'ₐ', 'e' to 'ₑ', 'h' to 'ₕ', 'i' to 'ᵢ', 'j' to 'ⱼ',
+    'k' to 'ₖ', 'l' to 'ₗ', 'm' to 'ₘ', 'n' to 'ₙ', 'o' to 'ₒ',
+    'p' to 'ₚ', 'r' to 'ᵣ', 's' to 'ₛ', 't' to 'ₜ', 'u' to 'ᵤ',
+    'v' to 'ᵥ', 'x' to 'ₓ'
+)
+
+private fun toSuperscript(s: String): String {
+    val sb = StringBuilder()
+    for (ch in s) {
+        val mapped = SUPERSCRIPT_MAP[ch]
+        if (mapped != null) {
+            sb.append(mapped)
+        } else {
+            return "^$s"
+        }
+    }
+    return sb.toString()
+}
+
+private fun toSubscript(s: String): String {
+    val sb = StringBuilder()
+    for (ch in s) {
+        val mapped = SUBSCRIPT_MAP[ch]
+        if (mapped != null) {
+            sb.append(mapped)
+        } else {
+            return "_$s"
+        }
+    }
+    return sb.toString()
+}
+
+private fun extractBalancedBraces(s: String, startIdx: Int): Pair<String, Int>? {
+    if (startIdx >= s.length || s[startIdx] != '{') return null
+    var depth = 0
+    val sb = StringBuilder()
+    for (i in startIdx until s.length) {
+        val c = s[i]
+        if (c == '{') {
+            depth++
+            if (depth > 1) sb.append(c)
+        } else if (c == '}') {
+            depth--
+            if (depth == 0) return Pair(sb.toString(), i + 1)
+            sb.append(c)
+        } else {
+            sb.append(c)
+        }
+    }
+    return null
+}
+
+/**
+ * Lightweight LaTeX / math beautifier translating common TeX macros and symbols into Unicode representations.
+ */
+internal fun prettifyMath(raw: String): String {
+    var s = raw.trim()
+    // Strip surrounding math delimiters if present
+    if (s.startsWith("$$") && s.endsWith("$$") && s.length >= 4) {
+        s = s.substring(2, s.length - 2).trim()
+    } else if (s.startsWith("$") && s.endsWith("$") && s.length >= 2) {
+        s = s.substring(1, s.length - 1).trim()
+    } else if (s.startsWith("\\[") && s.endsWith("\\]") && s.length >= 4) {
+        s = s.substring(2, s.length - 2).trim()
+    } else if (s.startsWith("\\(") && s.endsWith("\\)") && s.length >= 4) {
+        s = s.substring(2, s.length - 2).trim()
+    }
+
+    // Matrices & Environments
+    s = s.replace(Regex("""\\begin\{(?:b|p|v|V|small)?matrix\}"""), "[ ")
+    s = s.replace(Regex("""\\end\{(?:b|p|v|V|small)?matrix\}"""), " ]")
+    s = s.replace(Regex("""\\\\"""), " ; ")
+    s = s.replace("&", "  ")
+
+    // Operator and Function declarations
+    s = s.replace(Regex("""\\operatorname\*?\{([^{}]+)\}"""), "$1")
+    s = s.replace(Regex("""\\operatorname\*?\s+([a-zA-Z]+)"""), "$1")
+    s = s.replace(Regex("""\\DeclareMathOperator\*?\{[^}]+\}\{[^}]+\}"""), "")
+    s = s.replace(Regex("""\\Var(?![a-zA-Z])"""), "Var")
+    s = s.replace(Regex("""\\Cov(?![a-zA-Z])"""), "Cov")
+    s = s.replace(Regex("""\\Pr(?![a-zA-Z])"""), "Pr")
+
+    // Standard Math Functions
+    s = s.replace(Regex("""\\cos(?![a-zA-Z])"""), "cos")
+    s = s.replace(Regex("""\\sin(?![a-zA-Z])"""), "sin")
+    s = s.replace(Regex("""\\tan(?![a-zA-Z])"""), "tan")
+    s = s.replace(Regex("""\\cot(?![a-zA-Z])"""), "cot")
+    s = s.replace(Regex("""\\sec(?![a-zA-Z])"""), "sec")
+    s = s.replace(Regex("""\\csc(?![a-zA-Z])"""), "csc")
+    s = s.replace(Regex("""\\ln(?![a-zA-Z])"""), "ln")
+    s = s.replace(Regex("""\\log(?![a-zA-Z])"""), "log")
+    s = s.replace(Regex("""\\exp(?![a-zA-Z])"""), "exp")
+    s = s.replace(Regex("""\\det(?![a-zA-Z])"""), "det")
+    s = s.replace(Regex("""\\dim(?![a-zA-Z])"""), "dim")
+    s = s.replace(Regex("""\\ker(?![a-zA-Z])"""), "ker")
+    s = s.replace(Regex("""\\lim(?![a-zA-Z])"""), "lim")
+    s = s.replace(Regex("""\\max(?![a-zA-Z])"""), "max")
+    s = s.replace(Regex("""\\min(?![a-zA-Z])"""), "min")
+    s = s.replace(Regex("""\\inf(?![a-zA-Z])"""), "inf")
+    s = s.replace(Regex("""\\sup(?![a-zA-Z])"""), "sup")
+    s = s.replace(Regex("""\\arg(?![a-zA-Z])"""), "arg")
+    s = s.replace(Regex("""\\deg(?![a-zA-Z])"""), "deg")
+    s = s.replace(Regex("""\\gcd(?![a-zA-Z])"""), "gcd")
+
+    // Scaled Delimiters & Spacing
+    s = s.replace(Regex("""\\left\s*([(\[{|])"""), "$1")
+    s = s.replace(Regex("""\\right\s*([)\]}|])"""), "$1")
+    s = s.replace(Regex("""\\left\."""), "")
+    s = s.replace(Regex("""\\right\."""), "")
+    s = s.replace(Regex("""\\quad\b"""), "  ")
+    s = s.replace(Regex("""\\qquad\b"""), "    ")
+    s = s.replace(Regex("""\\[,;:]"""), " ")
+    s = s.replace(Regex("""\\!"""), "")
+
+    // Greek uppercase
+    s = s.replace(Regex("""\\Gamma(?![a-zA-Z])"""), "Γ")
+    s = s.replace(Regex("""\\Delta(?![a-zA-Z])"""), "Δ")
+    s = s.replace(Regex("""\\Theta(?![a-zA-Z])"""), "Θ")
+    s = s.replace(Regex("""\\Lambda(?![a-zA-Z])"""), "Λ")
+    s = s.replace(Regex("""\\Xi(?![a-zA-Z])"""), "Ξ")
+    s = s.replace(Regex("""\\Pi(?![a-zA-Z])"""), "Π")
+    s = s.replace(Regex("""\\Sigma(?![a-zA-Z])"""), "Σ")
+    s = s.replace(Regex("""\\Upsilon(?![a-zA-Z])"""), "Υ")
+    s = s.replace(Regex("""\\Phi(?![a-zA-Z])"""), "Φ")
+    s = s.replace(Regex("""\\Psi(?![a-zA-Z])"""), "Ψ")
+    s = s.replace(Regex("""\\Omega(?![a-zA-Z])"""), "Ω")
+
+    // Greek lowercase (using (?![a-zA-Z]) so \alpha_1, \theta_0 match)
+    s = s.replace(Regex("""\\alpha(?![a-zA-Z])"""), "α")
+    s = s.replace(Regex("""\\beta(?![a-zA-Z])"""), "β")
+    s = s.replace(Regex("""\\gamma(?![a-zA-Z])"""), "γ")
+    s = s.replace(Regex("""\\delta(?![a-zA-Z])"""), "δ")
+    s = s.replace(Regex("""\\epsilon(?![a-zA-Z])|\\varepsilon(?![a-zA-Z])"""), "ε")
+    s = s.replace(Regex("""\\zeta(?![a-zA-Z])"""), "ζ")
+    s = s.replace(Regex("""\\eta(?![a-zA-Z])"""), "η")
+    s = s.replace(Regex("""\\theta(?![a-zA-Z])|\\vartheta(?![a-zA-Z])"""), "θ")
+    s = s.replace(Regex("""\\iota(?![a-zA-Z])"""), "ι")
+    s = s.replace(Regex("""\\kappa(?![a-zA-Z])"""), "κ")
+    s = s.replace(Regex("""\\lambda(?![a-zA-Z])"""), "λ")
+    s = s.replace(Regex("""\\mu(?![a-zA-Z])"""), "μ")
+    s = s.replace(Regex("""\\nu(?![a-zA-Z])"""), "ν")
+    s = s.replace(Regex("""\\xi(?![a-zA-Z])"""), "ξ")
+    s = s.replace(Regex("""\\pi(?![a-zA-Z])"""), "π")
+    s = s.replace(Regex("""\\rho(?![a-zA-Z])"""), "ρ")
+    s = s.replace(Regex("""\\sigma(?![a-zA-Z])"""), "σ")
+    s = s.replace(Regex("""\\tau(?![a-zA-Z])"""), "τ")
+    s = s.replace(Regex("""\\phi(?![a-zA-Z])|\\varphi(?![a-zA-Z])"""), "φ")
+    s = s.replace(Regex("""\\chi(?![a-zA-Z])"""), "χ")
+    s = s.replace(Regex("""\\psi(?![a-zA-Z])"""), "ψ")
+    s = s.replace(Regex("""\\omega(?![a-zA-Z])"""), "ω")
+
+    // Blackboard bold (Sets & Probability)
+    s = s.replace(Regex("""\\mathbb\{E\}"""), "𝔼")
+    s = s.replace(Regex("""\\mathbb\{R\}"""), "ℝ")
+    s = s.replace(Regex("""\\mathbb\{N\}"""), "ℕ")
+    s = s.replace(Regex("""\\mathbb\{Z\}"""), "ℤ")
+    s = s.replace(Regex("""\\mathbb\{C\}"""), "ℂ")
+    s = s.replace(Regex("""\\mathbb\{Q\}"""), "ℚ")
+    s = s.replace(Regex("""\\mathbb\{P\}"""), "ℙ")
+    s = s.replace(Regex("""\\mathbb\{([A-Za-z])\}"""), "$1")
+
+    // Font styles
+    s = s.replace(Regex("""\\(?:mathbf|mathit|mathrm|text|textbf|textit|texttt|boldsymbol)\{([^{}]+)\}"""), "$1")
+
+    // Mathematical operators & symbols
+    s = s.replace(Regex("""\\sum(?![a-zA-Z])"""), "∑")
+    s = s.replace(Regex("""\\prod(?![a-zA-Z])"""), "∏")
+    s = s.replace(Regex("""\\iint(?![a-zA-Z])"""), "∬")
+    s = s.replace(Regex("""\\iiint(?![a-zA-Z])"""), "∭")
+    s = s.replace(Regex("""\\oint(?![a-zA-Z])"""), "∮")
+    s = s.replace(Regex("""\\int(?![a-zA-Z])"""), "∫")
+    s = s.replace(Regex("""\\partial(?![a-zA-Z])"""), "∂")
+    s = s.replace(Regex("""\\nabla(?![a-zA-Z])"""), "∇")
+    s = s.replace(Regex("""\\cdot(?![a-zA-Z])"""), "·")
+    s = s.replace(Regex("""\\times(?![a-zA-Z])"""), "×")
+    s = s.replace(Regex("""\\pm(?![a-zA-Z])"""), "±")
+    s = s.replace(Regex("""\\mp(?![a-zA-Z])"""), "∓")
+    s = s.replace(Regex("""\\infty(?![a-zA-Z])"""), "∞")
+    s = s.replace(Regex("""\\approx(?![a-zA-Z])"""), "≈")
+    s = s.replace(Regex("""\\neq(?![a-zA-Z])"""), "≠")
+    s = s.replace(Regex("""\\leq?(?![a-zA-Z])"""), "≤")
+    s = s.replace(Regex("""\\geq?(?![a-zA-Z])"""), "≥")
+    s = s.replace(Regex("""\\ll(?![a-zA-Z])"""), "≪")
+    s = s.replace(Regex("""\\gg(?![a-zA-Z])"""), "≫")
+    s = s.replace(Regex("""\\in(?![a-zA-Z])"""), "∈")
+    s = s.replace(Regex("""\\notin(?![a-zA-Z])"""), "∉")
+    s = s.replace(Regex("""\\subset(?![a-zA-Z])"""), "⊂")
+    s = s.replace(Regex("""\\subseteq(?![a-zA-Z])"""), "⊆")
+    s = s.replace(Regex("""\\cup(?![a-zA-Z])"""), "∪")
+    s = s.replace(Regex("""\\cap(?![a-zA-Z])"""), "∩")
+    s = s.replace(Regex("""\\forall(?![a-zA-Z])"""), "∀")
+    s = s.replace(Regex("""\\exists(?![a-zA-Z])"""), "∃")
+    s = s.replace(Regex("""\\nexists(?![a-zA-Z])"""), "∄")
+    s = s.replace(Regex("""\\to(?![a-zA-Z])|\\rightarrow(?![a-zA-Z])"""), "→")
+    s = s.replace(Regex("""\\leftarrow(?![a-zA-Z])"""), "←")
+    s = s.replace(Regex("""\\Rightarrow(?![a-zA-Z])"""), "⇒")
+    s = s.replace(Regex("""\\iff(?![a-zA-Z])|\\Leftrightarrow(?![a-zA-Z])"""), "⇔")
+    s = s.replace(Regex("""\\mapsto(?![a-zA-Z])"""), "↦")
+    s = s.replace(Regex("""\\circ(?![a-zA-Z])"""), "∘")
+    s = s.replace(Regex("""\\dots(?![a-zA-Z])|\\cdots(?![a-zA-Z])|\\ldots(?![a-zA-Z])"""), "…")
+    s = s.replace(Regex("""\\prime(?![a-zA-Z])"""), "′")
+
+    // Balanced fractions: \frac{num}{den} -> (num / den)
+    var fracIdx = 0
+    while (true) {
+        val pos = s.indexOf("\\frac", fracIdx)
+        if (pos == -1) break
+        var p = pos + 5
+        while (p < s.length && s[p] == ' ') p++
+        val numPair = extractBalancedBraces(s, p)
+        if (numPair == null) {
+            fracIdx = pos + 5
+            continue
+        }
+        val (num, afterNum) = numPair
+        var q = afterNum
+        while (q < s.length && s[q] == ' ') q++
+        val denPair = extractBalancedBraces(s, q)
+        if (denPair == null) {
+            fracIdx = pos + 5
+            continue
+        }
+        val (den, afterDen) = denPair
+        val replacement = "($num / $den)"
+        s = s.substring(0, pos) + replacement + s.substring(afterDen)
+        fracIdx = pos + replacement.length
+    }
+
+    // Roots: \sqrt[n]{x} -> ⁿ√(x), \sqrt{x} -> √(x) or √x
+    s = s.replace(Regex("""\\sqrt\[([^{}]+)\]\{([^{}]+)\}""")) { match ->
+        "${toSuperscript(match.groupValues[1])}√(${match.groupValues[2]})"
+    }
+    s = s.replace(Regex("""\\sqrt\{([^{}]+)\}""")) { match ->
+        val inner = match.groupValues[1].trim()
+        if (inner.length == 1) "√$inner" else "√($inner)"
+    }
+
+    // Integral bounds cleanup: \int_{-\infty}^{\infty} -> ∫[-∞, ∞] or \int_{-\infty}^{+\infty} -> ∫[-∞, +∞]
+    s = s.replace(Regex("""∫\s*_\{?([+-]?∞|[^^\s{}]+)\}?\s*\^\{?([+-]?∞|[^^\s{}]+)\}?""")) { match ->
+        val lower = match.groupValues[1]
+        val upper = match.groupValues[2]
+        "∫[$lower, $upper] "
+    }
+
+    // Superscripts: inner carets e.g. x^2 -> x²
+    s = s.replace(Regex("""\^([0-9a-zA-Z+\-=()])""")) { match ->
+        toSuperscript(match.groupValues[1])
+    }
+    s = s.replace(Regex("""\^\{([^{}]+)\}""")) { match ->
+        toSuperscript(match.groupValues[1])
+    }
+
+    // Subscripts: x_i -> xᵢ, _{i=1} -> ᵢ₌₁
+    s = s.replace(Regex("""_([0-9a-zA-Z+\-=()])""")) { match ->
+        toSubscript(match.groupValues[1])
+    }
+    s = s.replace(Regex("""_\{([^{}]+)\}""")) { match ->
+        toSubscript(match.groupValues[1])
+    }
+
+    // Clean up residual carets/underscores if any were left unmapped
+    s = s.replace(Regex("""\^\{([^{}]+)\}"""), "^$1")
+    s = s.replace(Regex("""_\{([^{}]+)\}"""), "_$1")
+
+    // Normalize multiple consecutive spaces
+    s = s.replace(Regex("""[ \t]{3,}"""), "  ")
+
+    return s
+}
