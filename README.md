@@ -5,8 +5,7 @@
 [![Release](https://img.shields.io/github/v/release/kacperczeczot/devlens?color=00D2FF&label=Latest%20Release)](https://github.com/kacperczeczot/devlens/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**DevLens** to mobilna soczewka na Twoje zdalne maszyny i przestrzenie robocze (Mac, Linux, Windows).
-Zdalny eksplorator plików, zaawansowany czytnik dokumentacji/kodu (Markdown, KaTeX, Mermaid) oraz audytor uprawnień i bezpieczeństwa węzłów w Twojej sieci lokalnej.
+**DevLens** to lekka aplikacja mobilna na system Android do zdalnego przeglądania plików, czytania dokumentacji i kodu (Markdown, KaTeX, Mermaid) oraz audytu uprawnień i bezpieczeństwa maszyn deweloperskich w sieci lokalnej (macOS, Linux, Windows).
 
 ---
 
