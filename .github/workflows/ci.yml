@@ -9,6 +9,21 @@ on:
       - main
 
 jobs:
+  standards:
+    name: Standards & Hygiene Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Verify repository standards
+        run: python3 scripts/check-standards.py
+
   test-android:
     name: Test Android App
     runs-on: ubuntu-latest
@@ -21,9 +36,6 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
