@@ -83,7 +83,7 @@ fun PermissionsAuditDialog(
                 )
                 .fillMaxHeight()
                 .clip(RoundedCornerShape(if (isLandscape) 16.dp else 20.dp))
-                .border(1.dp, AntigravityCardBorder, RoundedCornerShape(if (isLandscape) 16.dp else 20.dp)),
+                .border(1.dp, DevLensCardBorder, RoundedCornerShape(if (isLandscape) 16.dp else 20.dp)),
             colors = CardDefaults.cardColors(containerColor = SurfaceDark)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {

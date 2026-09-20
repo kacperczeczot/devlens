@@ -79,7 +79,7 @@ object ApkInstaller {
     }
 
     fun getCachedApk(context: Context): File {
-        return File(context.cacheDir, "antigravity-mesh-update.apk")
+        return File(context.cacheDir, "devlens-update.apk")
     }
 
     fun isApkReady(context: Context, expectedVersion: String? = null): File? {
@@ -239,7 +239,7 @@ object ApkInstaller {
                 readTimeout = 120_000
                 requestMethod = "GET"
                 instanceFollowRedirects = false
-                setRequestProperty("User-Agent", "AntigravityMesh-Downloader")
+                setRequestProperty("User-Agent", "DevLens-Downloader")
             }
 
             try {

@@ -78,7 +78,7 @@ fun UpdateDialog(
                     Box(
                         modifier = Modifier
                             .size(44.dp)
-                            .background(AntigravityAvatarGradient, RoundedCornerShape(12.dp))
+                            .background(DevLensAvatarGradient, RoundedCornerShape(12.dp))
                             .border(1.dp, AccentViolet.copy(alpha = 0.5f), RoundedCornerShape(12.dp)),
                         contentAlignment = Alignment.Center
                     ) {
@@ -98,7 +98,7 @@ fun UpdateDialog(
                             color = TextPrimary
                         )
                         Text(
-                            text = "Dostępna nowa wersja Antigravity Mesh",
+                            text = "Dostępna nowa wersja DevLens",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary
                         )

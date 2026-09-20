@@ -5,7 +5,7 @@
 [![Release](https://img.shields.io/github/v/release/kacperczeczot/devlens?color=00D2FF&label=Latest%20Release)](https://github.com/kacperczeczot/devlens/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**DevLens** to lekka aplikacja mobilna na system Android do zdalnego przeglądania plików, czytania dokumentacji i kodu (Markdown, KaTeX, Mermaid) oraz audytu uprawnień i bezpieczeństwa maszyn deweloperskich w sieci lokalnej (macOS, Linux, Windows).
+**DevLens** to nowoczesny ekosystem do zdalnego przeglądania projektów, czytania dokumentacji i kodu (Markdown, KaTeX, Mermaid) oraz audytu uprawnień i bezpieczeństwa maszyn deweloperskich w sieci lokalnej (macOS, Linux, Windows), składający się z **aplikacji mobilnej Android** oraz **natywnej aplikacji desktopowej (Rust)** z zasobnikiem systemowym (Tray).
 
 ---
 
@@ -24,15 +24,20 @@
 
 * 🛡️ **Audytor Uprawnień & Bezpieczeństwa (Security Auditor):**
   * Szybka inspekcja wrażliwych ścieżek (`.ssh`, `.aws`, `.config/gcloud`, `.devlens`).
-  * Wykrywanie niebezpiecznych uprawnień do plików i katalogów.
-  * Diagnostyka środowiska węzła (wersja OS, procesor, pamięć RAM, stan dysków).
+  * Wykrywanie otwartych portów sieciowych, niebezpiecznych uprawnień do plików i katalogów.
+  * Diagnostyka środowiska węzła (wersja OS, procesor, pamięć RAM, stan dysków, TCC/POSIX).
 
-* ⚡ **Lekki Daemon Węzła (Zero Dependencies):**
-  * Samodzielny serwer w Pythonie (standardowa biblioteka `http.server`, bez konieczności instalowania zewnętrznych pakietów pip).
-  * Bezpieczne parowanie w sieci prywatnej (Zero-Touch LAN Pairing).
+* 🖥️ **Natywna Aplikacja Desktopowa (`apps/desktop`):**
+  * Zbudowana w Rust z zasobnikiem systemowym (Tray) na macOS, Windows i Linux.
+  * Autostart przy logowaniu (`LaunchAgent`, Rejestr Windows, `.desktop` na Linux).
+  * Profilaktyka usypiania systemu (`power.rs`) podczas aktywnych transferów i operacji węzła.
+  * Wbudowany lokalny interfejs webowy (`http://localhost:8888`) ze statystykami węzła.
+
+* ⚡ **Lekki Serwer Węzła Python (`apps/daemon`):**
+  * Samodzielny serwer bez zewnętrznych bibliotek (Zero Dependencies) do szybkich wdrożeń w kontenerach lub środowiskach minimalistycznych.
 
 * 🔄 **Wbudowany System Aktualizacji:**
-  * Automatyczne wykrywanie nowych wersji z GitHub Releases i instalacja APK bezpośrednio w aplikacji.
+  * Bezpośrednie sprawdzanie i instalacja aktualizacji APK oraz wydań desktopowych z GitHub Releases.
 
 ---
 
@@ -40,10 +45,15 @@
 
 ```mermaid
 flowchart LR
-    subgraph Host ["Komputer Roboczy (Mac / Linux / Windows)"]
-        D["devlens-daemon (Python HTTP)"]
+    subgraph Host ["Komputer Roboczy (macOS / Windows / Linux)"]
+        Tray["Zasobnik Systemowy (Tray) & Autostart"]
+        D["devlens-desktop (Rust Daemon)"]
+        Web["Web Dashboard (localhost:8888)"]
         FS["System Plików / Projekty"]
         Sec["Audyt Uprawnień & Bezpieczeństwa"]
+        
+        Tray --> D
+        D --> Web
         D --> FS
         D --> Sec
     end
@@ -59,28 +69,34 @@ flowchart LR
         Exp --> Reader
     end
 
-    Mobile <-->|"REST API / LAN (Zero-Touch Pairing)"| Host
+    Mobile <-->|"REST API / LAN (Zero-Touch Pairing)"| D
 ```
 
 ---
 
 ## 🚀 Szybki Start
 
-### 1. Uruchomienie Daemona na komputerze
+### 1. Uruchomienie Aplikacji Desktopowej (Komputer)
 
-Daemon wymaga jedynie Pythona 3 (bez zewnętrznych bibliotek):
+Pobierz instalator dla swojego systemu z [sekcji wydań (Releases)](https://github.com/kacperczeczot/devlens/releases/latest):
+* **macOS:** `DevLens.dmg` (lub binarka `DevLens-macOS`)
+* **Windows:** `DevLens-Windows.exe`
+* **Linux:** `DevLens-Linux`
 
+Możesz także uruchomić ją ze źródeł:
 ```bash
-# Uruchomienie domyślne na porcie 8888:
-python3 apps/daemon/server.py
-
-# Lub ze zdefiniowanym portem i własnym tokenem:
-python3 apps/daemon/server.py --port 8888 --token mojtajnytoken
+cd apps/desktop
+cargo run
 ```
 
-Serwer wygeneruje token uwierzytelniający i zapisze go w `~/.devlens/nodes.json`.
+Ikonka DevLens pojawi się w zasobniku systemowym (obok zegara). Kliknij na nią prawym przyciskiem myszy, aby skopiować PIN lub token parowania.
 
-### 2. Połączenie z telefonu
+Alternatywnie możesz uruchomić lekki serwer w Pythonie:
+```bash
+python3 apps/daemon/server.py
+```
+
+### 2. Połączenie z telefonu (Android)
 
 1. Zainstaluj plik **DevLens.apk** z [sekcji wydań (Releases)](https://github.com/kacperczeczot/devlens/releases/latest).
 2. Upewnij się, że telefon i komputer są w tej samej sieci Wi-Fi.

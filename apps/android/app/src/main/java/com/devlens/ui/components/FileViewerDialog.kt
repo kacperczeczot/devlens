@@ -574,7 +574,7 @@ fun FileViewerDialog(
                 ),
             shape = RoundedCornerShape(if (isLandscape) 14.dp else 18.dp),
             color = SurfaceDark,
-            border = androidx.compose.foundation.BorderStroke(1.dp, AntigravityCardBorder)
+            border = androidx.compose.foundation.BorderStroke(1.dp, DevLensCardBorder)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 // Header Bar

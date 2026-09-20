@@ -1381,7 +1381,7 @@ fun MermaidFullscreenDialog(
                 ),
             shape = RoundedCornerShape(if (isLandscape) 14.dp else 18.dp),
             color = Color(0xFF0F172A),
-            border = androidx.compose.foundation.BorderStroke(1.dp, AntigravityCardBorder)
+            border = androidx.compose.foundation.BorderStroke(1.dp, DevLensCardBorder)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 Row(

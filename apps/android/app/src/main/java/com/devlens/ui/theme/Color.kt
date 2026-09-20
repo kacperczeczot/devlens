@@ -41,8 +41,3 @@ val DevLensAvatarGradient = Brush.linearGradient(
     listOf(Color(0xFF00D2FF).copy(alpha = 0.25f), Color(0xFF8B5CF6).copy(alpha = 0.25f))
 )
 
-// Legacy compatibility aliases
-val AntigravityGradient = DevLensGradient
-val AntigravityButtonGradient = DevLensButtonGradient
-val AntigravityCardBorder = DevLensCardBorder
-val AntigravityAvatarGradient = DevLensAvatarGradient

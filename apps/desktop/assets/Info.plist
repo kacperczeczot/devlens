@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>DevLens</string>
+    <key>CFBundleDisplayName</key>
+    <string>DevLens</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.devlens.desktop</string>
+    <key>CFBundleVersion</key>
+    <string>1.0.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>CFBundleExecutable</key>
+    <string>DevLens</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>DevLens wymaga dostępu do sieci lokalnej, aby łączyć się z aplikacją klienta i udostępniać eksplorator plików oraz audytor bezpieczeństwa.</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>DevLens wymaga dostępu do dokumentów i projektów w celu zdalnej eksploracji plików.</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>DevLens zapisuje pobrane i transferowane pliki w folderze Pobrane.</string>
+</dict>
+</plist>

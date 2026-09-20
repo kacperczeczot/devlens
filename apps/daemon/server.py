@@ -22,7 +22,7 @@ class DevLensRequestHandler(BaseHTTPRequestHandler):
     def _verify_auth(self):
         if not self.auth_token:
             return True
-        token = self.headers.get("X-Mesh-Token") or self.headers.get("Authorization")
+        token = self.headers.get("X-DevLens-Token") or self.headers.get("X-Mesh-Token") or self.headers.get("Authorization")
         if token and token.replace("Bearer ", "").strip() == self.auth_token:
             return True
         self.send_response(401)
@@ -327,7 +327,7 @@ class DevLensRequestHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
 
-        token = qs.get("token", [None])[0] or self.headers.get("X-Mesh-Token")
+        token = qs.get("token", [None])[0] or self.headers.get("X-DevLens-Token") or self.headers.get("X-Mesh-Token")
         if self.auth_token and token != self.auth_token:
             self.send_response(401)
             self.end_headers()
@@ -364,7 +364,7 @@ class DevLensRequestHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
 
-        token = qs.get("token", [None])[0] or self.headers.get("X-Mesh-Token")
+        token = qs.get("token", [None])[0] or self.headers.get("X-DevLens-Token") or self.headers.get("X-Mesh-Token")
         if self.auth_token and token != self.auth_token:
             self.send_response(401)
             self.end_headers()

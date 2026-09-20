@@ -12,7 +12,7 @@ import android.widget.Toast
 class PackageReplacedReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
-            val prefs = context.getSharedPreferences("antigravity_mesh_prefs", Context.MODE_PRIVATE)
+            val prefs = context.getSharedPreferences("devlens_prefs", Context.MODE_PRIVATE)
             prefs.edit().putBoolean("just_updated", true).apply()
         }
     }

@@ -7,7 +7,7 @@ import java.net.URL
 import java.util.concurrent.Executors
 
 /**
- * Checks GitHub Releases for new updates to Antigravity Mesh:
+ * Checks GitHub Releases for new updates to DevLens:
  * 1. Probes android-latest.json direct asset
  * 2. Fallback to GitHub Releases REST API if manifest asset is not found
  */
@@ -16,12 +16,6 @@ object ReleaseUpdateChecker {
 
     const val REPO_OWNER = "kacperczeczot"
     const val REPO_NAME = "devlens"
-
-    const val PUBLIC_GIST_MANIFEST_URL =
-        "https://gist.githubusercontent.com/$REPO_OWNER/d82255ff99003bf47ef59b8670ff4db0/raw/android-latest.json"
-
-    const val PUBLIC_PAGES_MANIFEST_URL =
-        "https://$REPO_OWNER.github.io/$REPO_NAME/android-latest.json"
 
     const val MANIFEST_URL =
         "https://github.com/$REPO_OWNER/$REPO_NAME/releases/latest/download/android-latest.json"
@@ -55,8 +49,6 @@ object ReleaseUpdateChecker {
 
     internal fun checkSync(currentVersion: String): UpdateOffer? {
         val urlsToTry = listOf(
-            PUBLIC_GIST_MANIFEST_URL,
-            PUBLIC_PAGES_MANIFEST_URL,
             MANIFEST_URL,
             RAW_MANIFEST_URL
         )
@@ -111,7 +103,7 @@ object ReleaseUpdateChecker {
         if (!SemVer.hostIsNewer(cleanVersion, currentVersion)) return null
 
         val apkDownloadUrl = apkAssetRegex.find(body)?.groupValues?.get(1)?.trim()
-            ?: "https://github.com/$REPO_OWNER/$REPO_NAME/releases/download/$tagName/AntigravityMesh.apk"
+            ?: "https://github.com/$REPO_OWNER/$REPO_NAME/releases/download/$tagName/DevLens.apk"
 
         if (!ApkInstaller.isAllowedApkUrl(apkDownloadUrl)) return null
 
@@ -130,7 +122,7 @@ object ReleaseUpdateChecker {
             requestMethod = "GET"
             instanceFollowRedirects = true
             setRequestProperty("Accept", acceptHeader)
-            setRequestProperty("User-Agent", "AntigravityMesh-Android-UpdateCheck")
+            setRequestProperty("User-Agent", "DevLens-Android-UpdateCheck")
         }
         return try {
             if (conn.responseCode !in 200..299) return null
