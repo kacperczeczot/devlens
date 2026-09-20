@@ -5,6 +5,8 @@ Wszystkie istotne zmiany w projekcie DevLens są dokumentowane w tym pliku.
 Format oparty jest na [Keep a Changelog](https://keepachangelog.com/pl/1.0.0/),
 a projekt stosuje [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
 ## [1.0.0] - 2026-09-20
 
 ### Dodano
