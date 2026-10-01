@@ -1,5 +1,5 @@
 {
-  "version": "1.0.2",
-  "apkUrl": "https://github.com/kacperczeczot/devlens/releases/download/v1.0.2/DevLens.apk",
-  "notes": "Wydanie v1.0.2: Dodano obsługę wielu adresów IP dla jednego węzła (Multi-IP LAN+VPN) oraz wyeliminowano timeouty odczytu uśpionych dysków."
+  "version": "1.0.3",
+  "apkUrl": "https://github.com/kacperczeczot/devlens/releases/download/v1.0.3/DevLens.apk",
+  "notes": "Wydanie v1.0.3 (Hotfix): Usunięto krytyczny błąd NPE przy deserializacji starych konfiguracji węzłów."
 }

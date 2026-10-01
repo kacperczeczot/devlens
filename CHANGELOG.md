@@ -7,6 +7,10 @@ a projekt stosuje [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-10-01
+
+### Naprawiono (Hotfix)
+- **Aplikacja Android**: Usunięto krytyczny błąd NullPointerException powodujący zawieszanie się (crash) aplikacji u użytkowników, którzy zaktualizowali ją z wersji 1.0.1. Błąd wynikał z deseralizacji starszych węzłów zapisanych w konfiguracji bez pola `knownIps`.
 ## [1.0.2] - 2026-10-01
 
 ### Naprawiono

@@ -65,7 +65,8 @@ class DevLensRepository(context: Context) {
     }
 
     suspend fun refreshNode(node: DevLensNode): DevLensNode = withContext(Dispatchers.IO) {
-        val hostsToTry = (listOf(node.host) + node.knownIps).distinct().filter { it.isNotBlank() }
+        val safeKnownIps = node.knownIps ?: emptyList()
+        val hostsToTry = (listOf(node.host) + safeKnownIps).distinct().filter { it.isNotBlank() }
         var successNode: DevLensNode? = null
         
         for (h in hostsToTry) {
@@ -166,10 +167,11 @@ class DevLensRepository(context: Context) {
 
                 if (idx >= 0) {
                     val prev = existing[idx]
+                    val safePrevKnownIps = prev.knownIps ?: emptyList()
                     existing[idx] = newNode.copy(
                         customName = prev.customName,
                         isPinned = prev.isPinned,
-                        knownIps = (prev.knownIps + prev.host + ip).distinct().filter { it.isNotBlank() }
+                        knownIps = (safePrevKnownIps + prev.host + ip).distinct().filter { it.isNotBlank() }
                     )
                 } else {
                     existing.add(newNode)
@@ -245,11 +247,12 @@ class DevLensRepository(context: Context) {
 
                 if (idx >= 0) {
                     val prev = existing[idx]
+                    val safePrevKnownIps = prev.knownIps ?: emptyList()
                     existing[idx] = refreshed.copy(
                         id = prev.id,
                         customName = prev.customName,
                         isPinned = prev.isPinned,
-                        knownIps = (prev.knownIps + prev.host + actualHost + refreshed.host).distinct().filter { it.isNotBlank() }
+                        knownIps = (safePrevKnownIps + prev.host + actualHost + refreshed.host).distinct().filter { it.isNotBlank() }
                     )
                 } else {
                     existing.add(refreshed)
