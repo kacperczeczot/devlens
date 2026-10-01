@@ -2601,7 +2601,7 @@ async fn handle_query(
 
     // Run filesystem exploration in spawn_blocking with a strict timeout to prevent kernel freezes
     let scan_result = tokio::time::timeout(
-        Duration::from_secs(5),
+        Duration::from_secs(30),
         tokio::task::spawn_blocking(move || scan_directory(&canonical_clone, max_depth))
     ).await;
 
@@ -2705,7 +2705,7 @@ async fn handle_read_file(
     let file_name = canonical.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
 
     let read_result = tokio::time::timeout(
-        Duration::from_secs(5),
+        Duration::from_secs(30),
         tokio::task::spawn_blocking(move || {
             let meta = std::fs::metadata(&canonical_clone);
             let size = meta.map(|m| m.len()).unwrap_or(0);

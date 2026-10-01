@@ -13,7 +13,8 @@ data class DevLensNode(
     val lastPingMs: Long = 0,
     val systemInfo: SystemInfoResponse? = null,
     val isPinned: Boolean = false,
-    val customName: String? = null
+    val customName: String? = null,
+    val knownIps: List<String> = emptyList()
 ) {
     val displayName: String
         get() = customName?.takeIf { it.isNotBlank() } ?: name

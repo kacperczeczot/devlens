@@ -65,26 +65,37 @@ class DevLensRepository(context: Context) {
     }
 
     suspend fun refreshNode(node: DevLensNode): DevLensNode = withContext(Dispatchers.IO) {
-        val start = System.currentTimeMillis()
-        try {
-            val api = DevLensApiService.create("http://${node.host}:${node.port}")
-            val health = api.checkHealth(node.token)
-            val elapsed = System.currentTimeMillis() - start
-            val sysInfo = try {
-                api.getSystemInfo(node.token)
+        val hostsToTry = (listOf(node.host) + node.knownIps).distinct().filter { it.isNotBlank() }
+        var successNode: DevLensNode? = null
+        
+        for (h in hostsToTry) {
+            val start = System.currentTimeMillis()
+            try {
+                val api = DevLensApiService.create("http://$h:${node.port}")
+                val health = api.checkHealth(node.token)
+                val elapsed = System.currentTimeMillis() - start
+                val sysInfo = try {
+                    api.getSystemInfo(node.token)
+                } catch (_: Exception) {
+                    null
+                }
+                val platformFinal = health.platform.ifBlank { node.platform }
+                
+                successNode = node.copy(
+                    host = h, // Set the reachable one as the primary host
+                    isOnline = true,
+                    lastPingMs = elapsed,
+                    platform = platformFinal,
+                    systemInfo = sysInfo,
+                    knownIps = hostsToTry // Keep all known IPs
+                )
+                break
             } catch (_: Exception) {
-                null
+                // Try next host
             }
-            val platformFinal = health.platform.ifBlank { node.platform }
-            node.copy(
-                isOnline = true,
-                lastPingMs = elapsed,
-                platform = platformFinal,
-                systemInfo = sysInfo
-            )
-        } catch (_: Exception) {
-            node.copy(isOnline = false, lastPingMs = -1)
         }
+        
+        successNode ?: node.copy(isOnline = false, lastPingMs = -1)
     }
 
     suspend fun scanAndPair(): List<PairResponse> = withContext(Dispatchers.IO) {
@@ -149,14 +160,16 @@ class DevLensRepository(context: Context) {
                     port = 8888,
                     token = res.token,
                     platform = res.platform.ifBlank { "Linux" },
-                    isOnline = true
+                    isOnline = true,
+                    knownIps = listOf(ip)
                 )
 
                 if (idx >= 0) {
                     val prev = existing[idx]
                     existing[idx] = newNode.copy(
                         customName = prev.customName,
-                        isPinned = prev.isPinned
+                        isPinned = prev.isPinned,
+                        knownIps = (prev.knownIps + prev.host + ip).distinct().filter { it.isNotBlank() }
                     )
                 } else {
                     existing.add(newNode)
@@ -224,7 +237,8 @@ class DevLensRepository(context: Context) {
                     port = actualPort,
                     token = res.token,
                     platform = res.platform.ifBlank { "Linux" },
-                    isOnline = true
+                    isOnline = true,
+                    knownIps = listOf(actualHost)
                 )
 
                 val refreshed = refreshNode(baseNode)
@@ -234,7 +248,8 @@ class DevLensRepository(context: Context) {
                     existing[idx] = refreshed.copy(
                         id = prev.id,
                         customName = prev.customName,
-                        isPinned = prev.isPinned
+                        isPinned = prev.isPinned,
+                        knownIps = (prev.knownIps + prev.host + actualHost + refreshed.host).distinct().filter { it.isNotBlank() }
                     )
                 } else {
                     existing.add(refreshed)

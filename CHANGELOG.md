@@ -7,6 +7,15 @@ a projekt stosuje [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-10-01
+
+### Naprawiono
+- **Wieloadresowość węzłów (Multi-IP)**:
+  - Węzły pamiętają teraz wszystkie pomyślnie wykryte adresy IP (np. Tailscale i lokalny adres Wi-Fi) na liście `knownIps`.
+  - Usprawniono proces odświeżania (`refreshNode`) tak, by automatycznie testował zapasowe adresy w przypadku braku odpowiedzi z głównego (np. po wyjściu z domu). Zapobiega to trwałemu nadpisywaniu adresów VPN przez skaner LAN.
+- **Odczyt zewnętrznych dysków**:
+  - Zwiększono limit czasu oczekiwania na odczyt katalogów i plików z 5 do 30 sekund w daemonsie, co eliminuje błędy odczytu (TCC / timeout) przy wybudzaniu uśpionych zewnętrznych dysków HDD.
+
 ## [1.0.1] - 2026-09-20
 
 ### Naprawiono
