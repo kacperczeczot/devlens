@@ -86,7 +86,7 @@ class DevLensRepository(context: Context) {
                     host = h, // Set the reachable one as the primary host
                     isOnline = true,
                     lastPingMs = elapsed,
-                    platform = platformFinal,
+                    _platform = platformFinal,
                     systemInfo = sysInfo,
                     knownIps = hostsToTry // Keep all known IPs
                 )
@@ -114,7 +114,7 @@ class DevLensRepository(context: Context) {
                             _nodes.value = _nodes.value.map {
                                 if (it.id == alreadyPairedNode.id) it.copy(
                                     isOnline = true,
-                                    name = health.node.ifBlank { it.name }
+                                    _name = health.node.ifBlank { it.name }
                                 ) else it
                             }
                             continue
@@ -156,11 +156,11 @@ class DevLensRepository(context: Context) {
 
                 val newNode = DevLensNode(
                     id = targetId,
-                    name = safeNodeName,
+                    _name = safeNodeName,
                     host = ip,
                     port = 8888,
                     token = res.token,
-                    platform = res.platform.ifBlank { "Linux" },
+                    _platform = res.platform.ifBlank { "Linux" },
                     isOnline = true,
                     knownIps = listOf(ip)
                 )
@@ -234,11 +234,11 @@ class DevLensRepository(context: Context) {
 
                 val baseNode = DevLensNode(
                     id = targetId,
-                    name = safeNodeName,
+                    _name = safeNodeName,
                     host = actualHost,
                     port = actualPort,
                     token = res.token,
-                    platform = res.platform.ifBlank { "Linux" },
+                    _platform = res.platform.ifBlank { "Linux" },
                     isOnline = true,
                     knownIps = listOf(actualHost)
                 )
