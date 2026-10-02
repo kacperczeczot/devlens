@@ -7,6 +7,10 @@ a projekt stosuje [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-10-02
+
+### Dodano
+- **Aplikacja Android**: Dodano obsługę gestów w przeglądarce plików (Pinch-to-Zoom). Można teraz płynnie przybliżać i przesuwać podgląd obrazków, zdjęć oraz stron PDF.
 ## [1.0.4] - 2026-10-02
 
 ### Naprawiono (Hotfix 2)

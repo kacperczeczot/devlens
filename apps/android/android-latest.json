@@ -1,5 +1,5 @@
 {
-  "version": "1.0.4",
-  "apkUrl": "https://github.com/kacperczeczot/devlens/releases/download/v1.0.4/DevLens.apk",
-  "notes": "Wydanie v1.0.4 (Hotfix 2): Usunięto błędy NPE powodujące losowe crashe (wyłączanie się) aplikacji podczas skanowania sieci i odświeżania listy na ekranie."
+  "version": "1.0.5",
+  "apkUrl": "https://github.com/kacperczeczot/devlens/releases/download/v1.0.5/DevLens.apk",
+  "notes": "Wydanie v1.0.5: Dodano obsługę powiększania i przesuwania (Pinch-to-Zoom) dla podglądu zdjęć i plików PDF."
 }

@@ -1,4 +1,7 @@
+
 package com.devlens.ui.components
+
+import androidx.compose.ui.draw.clipToBounds
 
 import android.content.ContentValues
 import android.content.Context
@@ -20,6 +23,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.*
@@ -1792,7 +1798,7 @@ fun PdfViewerCard(
                         CircularProgressIndicator(color = AccentCyan, strokeWidth = 2.dp)
                     }
                 } else pageBitmap?.let { bmp ->
-                    Image(
+                    ZoomableImage(
                         bitmap = bmp.asImageBitmap(),
                         contentDescription = "Strona ${currentPageIndex + 1}",
                         modifier = Modifier
@@ -1841,7 +1847,7 @@ fun ImageViewerCard(
                     .border(1.dp, BorderDark, RoundedCornerShape(8.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                Image(
+                ZoomableImage(
                     bitmap = bitmap.asImageBitmap(),
                     contentDescription = fileName,
                     modifier = Modifier.fillMaxSize().padding(4.dp),
@@ -2397,3 +2403,54 @@ private fun DialogActionButton(
     }
 }
 
+
+@Composable
+fun ZoomableImage(
+    bitmap: androidx.compose.ui.graphics.ImageBitmap,
+    contentDescription: String?,
+    modifier: Modifier = Modifier,
+    contentScale: ContentScale = ContentScale.Fit
+) {
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offset by remember { mutableStateOf(Offset.Zero) }
+
+    Box(
+        modifier = modifier
+            .clipToBounds()
+            .pointerInput(Unit) {
+                detectTransformGestures { _, pan, zoom, _ ->
+                    scale = (scale * zoom).coerceIn(1f, 5f)
+                    
+                    if (scale > 1f) {
+                        val maxOffsetX = (size.width * (scale - 1)) / 2
+                        val maxOffsetY = (size.height * (scale - 1)) / 2
+                        
+                        val newOffsetX = offset.x + pan.x * scale
+                        val newOffsetY = offset.y + pan.y * scale
+                        
+                        offset = Offset(
+                            newOffsetX.coerceIn(-maxOffsetX, maxOffsetX),
+                            newOffsetY.coerceIn(-maxOffsetY, maxOffsetY)
+                        )
+                    } else {
+                        offset = Offset.Zero
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Image(
+            bitmap = bitmap,
+            contentDescription = contentDescription,
+            contentScale = contentScale,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer(
+                    scaleX = scale,
+                    scaleY = scale,
+                    translationX = offset.x,
+                    translationY = offset.y
+                )
+        )
+    }
+}
