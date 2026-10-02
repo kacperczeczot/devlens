@@ -7,6 +7,10 @@ a projekt stosuje [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-10-02
+
+### Naprawiono (Hotfix 2)
+- **Aplikacja Android**: Załatano kolejne potencjalne wycieki NullPointerException (NPE) związane z brakiem kompatybilności Gson z domyślnymi wartościami Kotlina. Aplikacja nie będzie już crashować podczas odświeżania (`isNotBlank`) ani podczas rysowania interfejsu (brakce pole `platform`), jeśli w starych konfiguracjach JSON brakowało jakichkolwiek wartości.
 ## [1.0.3] - 2026-10-01
 
 ### Naprawiono (Hotfix)

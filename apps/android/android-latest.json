@@ -1,5 +1,5 @@
 {
-  "version": "1.0.3",
-  "apkUrl": "https://github.com/kacperczeczot/devlens/releases/download/v1.0.3/DevLens.apk",
-  "notes": "Wydanie v1.0.3 (Hotfix): Usunięto krytyczny błąd NPE przy deserializacji starych konfiguracji węzłów."
+  "version": "1.0.4",
+  "apkUrl": "https://github.com/kacperczeczot/devlens/releases/download/v1.0.4/DevLens.apk",
+  "notes": "Wydanie v1.0.4 (Hotfix 2): Usunięto błędy NPE powodujące losowe crashe (wyłączanie się) aplikacji podczas skanowania sieci i odświeżania listy na ekranie."
 }

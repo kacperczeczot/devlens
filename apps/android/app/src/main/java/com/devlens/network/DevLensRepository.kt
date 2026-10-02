@@ -65,8 +65,8 @@ class DevLensRepository(context: Context) {
     }
 
     suspend fun refreshNode(node: DevLensNode): DevLensNode = withContext(Dispatchers.IO) {
-        val safeKnownIps = node.knownIps ?: emptyList()
-        val hostsToTry = (listOf(node.host) + safeKnownIps).distinct().filter { it.isNotBlank() }
+        
+        val hostsToTry = (listOf(node.host) + node.safeKnownIps).distinct().filter { it?.isNotBlank() == true }
         var successNode: DevLensNode? = null
         
         for (h in hostsToTry) {
@@ -167,11 +167,11 @@ class DevLensRepository(context: Context) {
 
                 if (idx >= 0) {
                     val prev = existing[idx]
-                    val safePrevKnownIps = prev.knownIps ?: emptyList()
+                    
                     existing[idx] = newNode.copy(
                         customName = prev.customName,
                         isPinned = prev.isPinned,
-                        knownIps = (safePrevKnownIps + prev.host + ip).distinct().filter { it.isNotBlank() }
+                        knownIps = (prev.safeKnownIps + prev.host + ip).distinct().filter { it?.isNotBlank() == true }
                     )
                 } else {
                     existing.add(newNode)
@@ -247,12 +247,12 @@ class DevLensRepository(context: Context) {
 
                 if (idx >= 0) {
                     val prev = existing[idx]
-                    val safePrevKnownIps = prev.knownIps ?: emptyList()
+                    
                     existing[idx] = refreshed.copy(
                         id = prev.id,
                         customName = prev.customName,
                         isPinned = prev.isPinned,
-                        knownIps = (safePrevKnownIps + prev.host + actualHost + refreshed.host).distinct().filter { it.isNotBlank() }
+                        knownIps = (prev.safeKnownIps + prev.host + actualHost + refreshed.host).distinct().filter { it?.isNotBlank() == true }
                     )
                 } else {
                     existing.add(refreshed)
@@ -268,7 +268,7 @@ class DevLensRepository(context: Context) {
             val errorBody = e.response()?.errorBody()?.string()
             val customMsg = try {
                 if (!errorBody.isNullOrBlank()) {
-                    org.json.JSONObject(errorBody).optString("error").takeIf { it.isNotBlank() }
+                    org.json.JSONObject(errorBody).optString("error").takeIf { it?.isNotBlank() == true }
                 } else null
             } catch (_: Exception) {
                 null

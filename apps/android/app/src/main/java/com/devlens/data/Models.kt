@@ -4,18 +4,21 @@ import com.google.gson.annotations.SerializedName
 
 data class DevLensNode(
     val id: String,
-    val name: String,
+    @SerializedName("name") val _name: String? = null,
     val host: String,
     val port: Int = 8888,
     val token: String,
-    val platform: String = "Unknown",
+    @SerializedName("platform") val _platform: String? = null,
     val isOnline: Boolean = false,
     val lastPingMs: Long = 0,
     val systemInfo: SystemInfoResponse? = null,
     val isPinned: Boolean = false,
     val customName: String? = null,
-    val knownIps: List<String> = emptyList()
+    val knownIps: List<String>? = emptyList()
 ) {
+    val name: String get() = _name ?: "Unknown Node"
+    val platform: String get() = _platform ?: "Unknown"
+    val safeKnownIps: List<String> get() = knownIps ?: emptyList()
     val displayName: String
         get() = customName?.takeIf { it.isNotBlank() } ?: name
 }
@@ -48,11 +51,15 @@ data class DiskInfo(
 )
 
 data class HealthResponse(
-    val status: String = "",
-    val platform: String = "",
-    val node: String = "",
+    @SerializedName("status") val _status: String? = null,
+    @SerializedName("platform") val _platform: String? = null,
+    @SerializedName("node") val _node: String? = null,
     val engine: String? = null
-)
+) {
+    val status: String get() = _status ?: ""
+    val platform: String get() = _platform ?: ""
+    val node: String get() = _node ?: ""
+}
 
 data class PairRequest(
     @SerializedName("node_name") val nodeName: String,
